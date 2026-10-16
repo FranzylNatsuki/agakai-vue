@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # AgakAI (Vue + Ionic + Capacitor)
 
 Frontend-only port of the Flutter app in `../lib`. Backend (Supabase) calls are blank placeholders.
@@ -42,3 +43,7 @@ src/
 - `services/agakaiApi.ts` – SSE chat edge function (transcript/delta/audio/done/error)
 - `services/voiceRecorder.ts` / `ttsPlayer.ts` – mic capture + audio playback (Capacitor plugin or MediaRecorder)
 - `composables/useSettings.ts` – persist language / text size
+=======
+# agakai-vue
+Vue adaptation of AgakAI.
+>>>>>>> 1ba8cd4aa65d251788742e5c2da187042e2b62f4
