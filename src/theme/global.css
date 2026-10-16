@@ -1,0 +1,61 @@
+/* Global styles */
+html {
+  /* Scales every rem-based size app-wide (text size setting). */
+  font-size: calc(16px * var(--text-scale));
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: var(--c-page-bg);
+  font-family: var(--ion-font-family);
+  color: var(--c-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Shared headline style (stand-in for "LINE Seed Sans" headings) */
+.headline {
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--c-ink);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Reusable shared button base */
+.btn-reset {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+}
+
+/* Tap feedback similar to Flutter InkWell */
+.tappable {
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+.tappable:active {
+  opacity: 0.7;
+}
+
+/* Calm entrance animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.45s cubic-bezier(0.215, 0.61, 0.355, 1) both; }
+.fade-up { animation: fade-up 0.4s cubic-bezier(0.215, 0.61, 0.355, 1) both; }
+
+/* Spinner (Flutter CircularProgressIndicator) */
+@keyframes spin { to { transform: rotate(360deg); } }
