@@ -1,67 +1,90 @@
-/* AgakAI design tokens — mirrors lib/theme/app_colors.dart */
+/* Tala / AgakAI design tokens — matches Tala-Senior-Benefits-Agent.html */
 :root {
-  /* Brand / primary */
-  --c-navy: #093682;
-  --c-sky-blue-bg: #d2ecff;
-  --c-sky-blue-bg-2: #d2e3ff;
-  --c-pale-blue-bg: #e0f2fe;
-  --c-bright-blue: #0284c7;
-  --c-mid-blue: #0261c7;
-  --c-focus-blue: #3b82f6;
-  --c-orange-bg: #ffe8d2;
-  --c-orange: #d35400;
-  --c-orange-bg-2: #fbefe6;
+  --stage: #e9eaf0;
+  --bg: #fafafc;
+  --ink: #0b0f1a;
+  --muted: #505b75;
+  --line: rgba(15, 23, 42, 0.12);
+  --glass: rgba(255, 255, 255, 0.72);
+  --solid: #ffffff;
+  --hi: rgba(30, 64, 175, 0.08);
+  --a1: #1b3a9e;
+  --a2: #2f5fd8;
+  --a3: #2f5fd8;
+  --grad: linear-gradient(135deg, var(--a1), var(--a2));
+  --glow: rgba(30, 64, 175, 0.3);
+  --g1: rgba(47, 95, 216, 0.2);
+  --g2: transparent;
+  --grid: rgba(15, 23, 42, 0.06);
+  --danger: #b3261e;
+  --fs: 20px;
+  color-scheme: light;
 
-  /* Web backdrop behind centered app frame */
-  --c-web-backdrop: #e3e7ee;
-
-  /* Neutrals */
-  --c-page-bg: #fafafa;
-  --c-field-bg: #ededed;
-  --c-slate-border: #cbd5e1;
-  --c-slate-text: #475569;
-  --c-ink: #0f172a;
-  --c-hairline: #f3e4d9;
-
-  /* Green ("civic" surface) */
-  --c-forest: #0b4d3a;
-  --c-forest-dark: #11221d;
-  --c-forest-border: #c2ddd7;
-  --c-forest-soft: #e3efea;
-  --c-forest-bg: #f4f9f6;
-  --c-forest-body: #334d47;
-  --c-claim-green: #1b5e20;
-  --c-claim-green-bg: #e8f5e9;
-
-  /* Dashboard */
-  --c-dashboard-green: #327628;
-  --c-dashboard-accent: #51cf40;
-  --c-dashboard-accent-bg: #e8f9e6;
-  --c-placeholder-grey: #d2d2d2;
-  --c-image-placeholder-bg: #f0f0f0;
-
-  /* Extra shades used inline in the Flutter screens */
-  --c-benefit-green: #4fb152;
-  --c-slate-100: #f1f5f9;
-  --c-slate-200: #e2e8f0;
-  --c-slate-400: #94a3b8;
-  --c-slate-500: #64748b;
-  --c-slate-700: #334155;
-  --c-slate-50: #f8fafc;
-  --c-blue-50: #eff6ff;
-  --c-danger: #ef4444;
-
-  /* Text size (1 = standard, 1.2 = enlarged). Driven by useSettings(). */
-  --text-scale: 1;
+  /* Legacy aliases so any existing helper components continue working */
+  --c-navy: #1b3a9e;
+  --c-bright-blue: #2f5fd8;
+  --c-mid-blue: #2f5fd8;
+  --c-focus-blue: #2f5fd8;
+  --c-pale-blue-bg: rgba(30, 64, 175, 0.08);
+  --c-sky-blue-bg: rgba(30, 64, 175, 0.12);
+  --c-web-backdrop: var(--stage);
+  --c-page-bg: var(--bg);
+  --c-field-bg: var(--solid);
+  --c-slate-border: var(--line);
+  --c-slate-text: var(--muted);
+  --c-ink: var(--ink);
+  --c-danger: var(--danger);
 
   /* Ionic overrides */
-  --ion-font-family: 'Rubik', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --ion-background-color: var(--c-page-bg);
-  --ion-text-color: var(--c-ink);
-  --ion-color-primary: #093682;
-  --ion-color-primary-rgb: 9, 54, 130;
+  --ion-font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --ion-background-color: var(--bg);
+  --ion-text-color: var(--ink);
+  --ion-color-primary: #1b3a9e;
+  --ion-color-primary-rgb: 27, 58, 158;
   --ion-color-primary-contrast: #ffffff;
   --ion-color-primary-contrast-rgb: 255, 255, 255;
-  --ion-color-primary-shade: #083072;
-  --ion-color-primary-tint: #224a8f;
+  --ion-color-primary-shade: #173288;
+  --ion-color-primary-tint: #2f5fd8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --stage: #03050d;
+    --bg: #070c1c;
+    --ink: #f5f6fa;
+    --muted: #a3acc2;
+    --line: rgba(255, 255, 255, 0.13);
+    --glass: rgba(255, 255, 255, 0.06);
+    --solid: #111a33;
+    --hi: rgba(90, 130, 240, 0.16);
+    --a1: #2a4fc4;
+    --a2: #4a78e8;
+    --a3: #4a78e8;
+    --glow: rgba(74, 120, 232, 0.4);
+    --g1: rgba(42, 79, 196, 0.38);
+    --g2: transparent;
+    --grid: rgba(255, 255, 255, 0.06);
+    --danger: #ff8a80;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --stage: #03050d;
+  --bg: #070c1c;
+  --ink: #f5f6fa;
+  --muted: #a3acc2;
+  --line: rgba(255, 255, 255, 0.13);
+  --glass: rgba(255, 255, 255, 0.06);
+  --solid: #111a33;
+  --hi: rgba(90, 130, 240, 0.16);
+  --a1: #2a4fc4;
+  --a2: #4a78e8;
+  --a3: #4a78e8;
+  --glow: rgba(74, 120, 232, 0.4);
+  --g1: rgba(42, 79, 196, 0.38);
+  --g2: transparent;
+  --grid: rgba(255, 255, 255, 0.06);
+  --danger: #ff8a80;
+  color-scheme: dark;
 }

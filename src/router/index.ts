@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from '@ionic/vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 
 const routes: Array<RouteRecordRaw> = [
-  { path: '/', redirect: '/login' },
+  { path: '/', redirect: '/app' },
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
   { path: '/app', name: 'app', component: () => import('@/views/AppShellView.vue') },
 ];

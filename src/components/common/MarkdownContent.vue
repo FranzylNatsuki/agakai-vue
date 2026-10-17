@@ -17,49 +17,47 @@ const html = computed(() =>
 
 <style scoped>
 .md {
-  color: var(--c-slate-text);
+  color: var(--ink);
   word-wrap: break-word;
 }
 .md :deep(p) {
-  margin: 0 0 0.6em;
+  margin: 0 0 0.5em;
+}
+.md :deep(p:last-child) {
+  margin-bottom: 0;
 }
 .md :deep(strong) {
   font-weight: 700;
-  color: var(--c-ink);
+  color: var(--ink);
 }
 .md :deep(h1),
 .md :deep(h2),
 .md :deep(h3) {
-  margin: 0.6em 0 0.3em;
+  margin: 0.5em 0 0.25em;
   font-weight: 700;
-  color: var(--c-navy);
+  color: var(--a2);
 }
 .md :deep(ul),
 .md :deep(ol) {
-  margin: 0 0 0.6em;
-  padding-left: 1.4em;
+  margin: 6px 0 0 22px;
+  padding: 0;
 }
 .md :deep(blockquote) {
-  margin: 0 0 0.6em;
+  margin: 0.4em 0 0;
   padding-left: 12px;
-  border-left: 3px solid var(--c-slate-border);
+  border-left: 3px solid var(--a2);
+  color: var(--muted);
   font-style: italic;
 }
 
 .md--answer {
-  font-size: 1.125rem;
-  line-height: 1.6;
+  font-size: var(--fs);
+  line-height: 1.4;
 }
-.md--answer :deep(h1) { font-size: 1.25rem; }
-.md--answer :deep(h2) { font-size: 1.1875rem; }
-.md--answer :deep(h3) { font-size: 1.125rem; }
-.md--answer :deep(blockquote) { font-size: 1.0625rem; }
 
 .md--notes {
-  font-size: 0.9375rem;
-  line-height: 1.55;
+  font-size: calc(var(--fs) * 0.85);
+  line-height: 1.45;
+  color: var(--muted);
 }
-.md--notes :deep(h1) { font-size: 1rem; }
-.md--notes :deep(h2) { font-size: 0.9375rem; }
-.md--notes :deep(h3) { font-size: 0.875rem; }
 </style>

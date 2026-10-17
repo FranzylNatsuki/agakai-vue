@@ -18,21 +18,33 @@ const TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
   tagalog: tl,
 };
 
-/** Enlarged text multiplier (modest, so fixed layouts don't break). */
+/** 3-tier font sizes from Tala (20px, 24px, 28px). */
+export const TEXT_SIZES = [20, 24, 28] as const;
+export type TextSizeIndex = 0 | 1 | 2;
+
+/** Enlarged text multiplier (legacy helper). */
 export const LARGE_TEXT_SCALE = 1.2;
 
 const state = reactive({
-  language: 'english' as AppLanguage,
+  language: 'bisaya' as AppLanguage,
   textScale: 1,
+  textSizeIndex: 0 as TextSizeIndex,
 });
 
-function applyTextScale() {
-  document.documentElement.style.setProperty('--text-scale', String(state.textScale));
+function applyFontSize() {
+  if (typeof document !== 'undefined') {
+    const px = TEXT_SIZES[state.textSizeIndex] ?? 20;
+    document.documentElement.style.setProperty('--fs', `${px}px`);
+    document.documentElement.style.setProperty('--text-scale', String(state.textScale));
+  }
 }
+
+applyFontSize();
 
 /** Single source of truth for language + text size. */
 export function useSettings() {
-  const largeText = computed(() => state.textScale > 1);
+  const largeText = computed(() => state.textSizeIndex > 0);
+  const textSizeIndex = computed(() => state.textSizeIndex);
 
   function t(key: string, args?: Record<string, string | number>): string {
     let value = TRANSLATIONS[state.language][key] ?? key;
@@ -49,18 +61,24 @@ export function useSettings() {
     // TODO(backend): persist language preference.
   }
 
+  function setTextSizeIndex(index: TextSizeIndex) {
+    state.textSizeIndex = index;
+    state.textScale = index === 0 ? 1 : index === 1 ? 1.2 : 1.4;
+    applyFontSize();
+  }
+
   function setLargeText(large: boolean) {
-    state.textScale = large ? LARGE_TEXT_SCALE : 1;
-    applyTextScale();
-    // TODO(backend): persist text size preference.
+    setTextSizeIndex(large ? 1 : 0);
   }
 
   return {
     state,
     language: computed(() => state.language),
     largeText,
+    textSizeIndex,
     t,
     setLanguage,
     setLargeText,
+    setTextSizeIndex,
   };
 }

@@ -1,42 +1,86 @@
 <script setup lang="ts">
 /**
- * Centers the mobile-first UI as a floating card on wide (desktop browser)
- * viewports. On phones / Capacitor it renders the content untouched.
+ * Centers the mobile-first UI inside the Tala `.phone` frame on wide desktop
+ * viewports, and goes full-bleed on mobile screens (<= 480px).
  */
 </script>
 
 <template>
-  <div class="responsive-frame">
-    <div class="responsive-frame__inner">
-      <slot />
+  <div class="stage">
+    <div class="phone" id="phone">
+      <div class="sb">
+        <span>9:41</span>
+        <span>●●● 100%</span>
+      </div>
+      <div class="phone__content">
+        <slot />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.responsive-frame,
-.responsive-frame__inner {
-  position: relative;
+.stage {
   width: 100%;
   height: 100%;
+  background: var(--stage);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
 }
 
-@media (min-width: 700px) {
-  .responsive-frame {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--c-web-backdrop);
+.phone {
+  width: 392px;
+  height: min(830px, 100%);
+  background: var(--bg);
+  border: 3px solid var(--ink);
+  border-radius: 50px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.phone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(480px 340px at 20% -8%, var(--g1), transparent 72%);
+  pointer-events: none;
+}
+
+.sb {
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 30px 0;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.phone__content {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 480px) {
+  .phone {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
   }
-  .responsive-frame__inner {
-    width: 430px;
-    height: calc(100% - 64px);
-    border-radius: 28px;
-    overflow: hidden;
-    background: #fff;
-    /* transform makes fixed-position children stay inside the frame */
-    transform: translateZ(0);
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  .sb {
+    display: none;
   }
 }
 </style>
