@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # AgakAI (Vue + Ionic + Capacitor)
 
 Frontend-only port of the Flutter app in `../lib`. Backend (Supabase) calls are blank placeholders.
@@ -46,4 +45,3 @@ src/
 =======
 # agakai-vue
 Vue adaptation of AgakAI.
->>>>>>> 1ba8cd4aa65d251788742e5c2da187042e2b62f4
