@@ -2,6 +2,8 @@
  * Microphone capture using MediaRecorder + Web Audio API for live dB metering.
  */
 
+import { hasNativePermission } from '@/services/permissionSettings';
+
 const CANDIDATE_MIME_TYPES = [
   'audio/webm;codecs=opus',
   'audio/webm',
@@ -122,6 +124,19 @@ function cleanupResources() {
 }
 
 export const voiceRecorder = {
+  /** Check permission without triggering another OS prompt when the browser supports it. */
+  async hasPermission(): Promise<boolean | null> {
+    const nativePermission = await hasNativePermission('microphone');
+    if (nativePermission !== null) return nativePermission;
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) return null;
+    try {
+      const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      return permission.state === 'granted';
+    } catch {
+      return null;
+    }
+  },
+
   /** Ask for microphone access without recording or retaining any audio. */
   async requestPermission(): Promise<boolean> {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return false;

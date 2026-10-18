@@ -3,9 +3,14 @@ import { authService } from '@/services/authService';
 import { getSupabase } from '@/services/supabase';
 import { mockProfile, mockUserNotes } from '@/data/mock';
 import { profileFromJson, type Profile } from '@/models/profile';
+import type { AppLanguage } from '@/composables/useSettings';
+import { MEMORY_NOTES_MAX_CHARS, MEMORY_SUMMARY_MAX_CHARS } from '@/services/memory';
+import { memorySourceHash } from '@/services/memoryTranslation';
 
 const USER_NOTES_STORAGE_PREFIX = 'agakai_user_notes_';
 const SUMMARY_STORAGE_PREFIX = 'agakai_user_summary_';
+const MEMORY_LANGUAGE_STORAGE_PREFIX = 'agakai_memory_language_';
+const MEMORY_TRANSLATION_STORAGE_PREFIX = 'agakai_memory_translation_';
 const notesListeners = new Set<(notes: string) => void>();
 
 function notifyNotesListeners(notes: string) {
@@ -16,6 +21,25 @@ function notifyNotesListeners(notes: string) {
 
 function localNotesKey(authUserId: string | null): string {
   return `${USER_NOTES_STORAGE_PREFIX}${authUserId ?? 'anon'}`;
+}
+
+async function memoryLanguageFor(
+  userId: string | null,
+  summary: string,
+  notes: string,
+): Promise<AppLanguage | null> {
+  if (!summary && !notes) return null;
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`${MEMORY_LANGUAGE_STORAGE_PREFIX}${userId ?? 'anon'}`);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { hash?: unknown; language?: unknown };
+    if (!['english', 'cebuano', 'tagalog'].includes(String(saved.language))) return null;
+    const hash = await memorySourceHash({ summary, notes });
+    return saved.hash === hash ? saved.language as AppLanguage : null;
+  } catch {
+    return null;
+  }
 }
 
 export const profileService = {
@@ -61,7 +85,7 @@ export const profileService = {
   },
 
   /** Loads the short summary and the detailed notes together. */
-  async loadMemory(): Promise<{ summary: string; notes: string }> {
+  async loadMemory(): Promise<{ summary: string; notes: string; language: AppLanguage | null }> {
     const userId = await authService.currentUserId();
 
     if (isBackendConfigured() && userId) {
@@ -73,10 +97,20 @@ export const profileService = {
           .maybeSingle();
 
         if (!error && data) {
-          return {
-            summary: (data.user_summary ?? '').trim(),
-            notes: (data.user_notes ?? '').trim(),
-          };
+          const rawSummary = data.user_summary ?? '';
+          const rawNotes = data.user_notes ?? '';
+          if (typeof localStorage !== 'undefined') {
+            try {
+              localStorage.setItem(`${SUMMARY_STORAGE_PREFIX}${userId}`, rawSummary);
+              localStorage.setItem(localNotesKey(userId), rawNotes);
+            } catch {
+              // Continue with the server result if local caching is unavailable.
+            }
+          }
+          const language = await memoryLanguageFor(userId, rawSummary.trim(), rawNotes.trim());
+          const summary = rawSummary.replace(/\s+/g, ' ').trim();
+          const notes = rawNotes.trim();
+          return { summary, notes, language };
         }
       } catch {
         // Fall through to the local cache.
@@ -84,23 +118,37 @@ export const profileService = {
     }
 
     if (typeof localStorage !== 'undefined') {
-      return {
-        summary: localStorage.getItem(`${SUMMARY_STORAGE_PREFIX}${userId}`) ?? '',
-        notes: localStorage.getItem(localNotesKey(userId)) ?? '',
-      };
+      const rawSummary = localStorage.getItem(`${SUMMARY_STORAGE_PREFIX}${userId}`) ?? '';
+      const rawNotes = localStorage.getItem(localNotesKey(userId)) ?? '';
+      const language = await memoryLanguageFor(userId, rawSummary.trim(), rawNotes.trim());
+      const summary = rawSummary.replace(/\s+/g, ' ').trim();
+      const notes = rawNotes.trim();
+      return { summary, notes, language };
     }
 
-    return { summary: '', notes: '' };
+    return { summary: '', notes: '', language: null };
   },
 
   /** Writes both memory fields in one update; column grants allow only these. */
-  async saveMemory(summary: string, notes: string): Promise<void> {
-    const cleanSummary = summary.replace(/\s+/g, ' ').trim().slice(0, 240);
+  async saveMemory(summary: string, notes: string, language?: AppLanguage): Promise<void> {
+    const cleanSummary = summary.replace(/\s+/g, ' ').trim();
     const cleanNotes = notes.trim();
+    if (cleanSummary.length > MEMORY_SUMMARY_MAX_CHARS || cleanNotes.length > MEMORY_NOTES_MAX_CHARS) return;
     const userId = await authService.currentUserId();
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(`${SUMMARY_STORAGE_PREFIX}${userId}`, cleanSummary);
       localStorage.setItem(localNotesKey(userId), cleanNotes);
+      const languageKey = `${MEMORY_LANGUAGE_STORAGE_PREFIX}${userId ?? 'anon'}`;
+      if (!cleanSummary && !cleanNotes) {
+        localStorage.removeItem(languageKey);
+      } else if (language) {
+        try {
+          const hash = await memorySourceHash({ summary: cleanSummary, notes: cleanNotes });
+          localStorage.setItem(languageKey, JSON.stringify({ hash, language }));
+        } catch {
+          localStorage.removeItem(languageKey);
+        }
+      }
     }
     notifyNotesListeners(cleanNotes);
 
@@ -119,6 +167,10 @@ export const profileService = {
   /** Loads this senior's rolling memory note. Returns "" when there is none. */
   async loadUserNotes(): Promise<string | null> {
     const userId = await authService.currentUserId();
+    if (typeof localStorage !== 'undefined') {
+      const cached = localStorage.getItem(localNotesKey(userId));
+      if (cached !== null) return cached;
+    }
 
     if (isBackendConfigured() && userId) {
       try {
@@ -154,6 +206,7 @@ export const profileService = {
   /** Persists the memory note. Column grants limit senior writes to this field. */
   async saveUserNotes(notes: string): Promise<void> {
     const clean = notes.trim();
+    if (clean.length > MEMORY_NOTES_MAX_CHARS) return;
     const userId = await authService.currentUserId();
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(localNotesKey(userId), clean);
@@ -178,6 +231,8 @@ export const profileService = {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith(USER_NOTES_STORAGE_PREFIX)) localStorage.removeItem(key);
       if (key.startsWith(SUMMARY_STORAGE_PREFIX)) localStorage.removeItem(key);
+      if (key.startsWith(MEMORY_LANGUAGE_STORAGE_PREFIX)) localStorage.removeItem(key);
+      if (key.startsWith(MEMORY_TRANSLATION_STORAGE_PREFIX)) localStorage.removeItem(key);
     }
     localStorage.removeItem('agakai_mock_session');
   },

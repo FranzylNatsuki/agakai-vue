@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { IonIcon } from '@ionic/vue';
 import { arrowForward, keypadOutline } from 'ionicons/icons';
+import { useSettings } from '@/composables/useSettings';
 
 /** Text input so seniors who prefer typing (or with no mic) can ask. */
 defineProps<{ modelValue: string }>();
+const { t } = useSettings();
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'submit', v: string): void }>();
 </script>
 
@@ -14,13 +16,19 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'submi
       class="ask-bar__input"
       type="text"
       enterkeyhint="send"
-      placeholder="Type here instead..."
+      :placeholder="t('type_question')"
       :value="modelValue"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       @keyup.enter="emit('submit', modelValue)"
     />
-    <button class="btn-reset ask-bar__send tappable" aria-label="Send" @click="emit('submit', modelValue)">
-      <IonIcon :icon="arrowForward" />
+    <button
+      class="btn-reset ask-bar__send tappable"
+      type="button"
+      :aria-label="t('ask_agak')"
+      @click="emit('submit', modelValue)"
+    >
+      <IonIcon :icon="arrowForward" aria-hidden="true" />
+      <span>{{ t('ask_agak') }}</span>
     </button>
   </div>
 </template>
@@ -54,15 +62,21 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'submi
   color: var(--c-slate-text);
 }
 .ask-bar__send {
-  width: 40px;
-  height: 40px;
+  min-height: 48px;
+  padding: 0 12px;
   flex-shrink: 0;
-  border-radius: 12px;
-  background: var(--c-pale-blue-bg);
-  color: var(--c-bright-blue);
-  font-size: 20px;
+  gap: 6px;
+  border-radius: 16px;
+  background: var(--a2);
+  color: #fff;
+  font-size: calc(14px * var(--text-scale, 1));
+  font-weight: 700;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.ask-bar__send ion-icon {
+  font-size: 18px;
 }
 </style>

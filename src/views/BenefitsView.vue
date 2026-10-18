@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import BenefitsHeader from '@/components/benefits/BenefitsHeader.vue';
 import BenefitCard from '@/components/benefits/BenefitCard.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
-import type { Benefit } from '@/models/benefit';
+import { localizeBenefit, type Benefit } from '@/models/benefit';
 import { benefitService } from '@/services/benefitService';
 import { profileService } from '@/services/profileService';
+import { useSettings } from '@/composables/useSettings';
 
 /**
  * `highlightBenefitId` = benefit tapped on the Home tab; this view scrolls to
@@ -13,8 +14,13 @@ import { profileService } from '@/services/profileService';
  */
 const props = defineProps<{ highlightBenefitId?: string | null }>();
 const emit = defineEmits<{ (e: 'back'): void }>();
+const { t, language } = useSettings();
 
 const benefits = ref<Benefit[]>([]);
+const localizedBenefits = computed(() => {
+  const localeCode = language.value === 'cebuano' ? 'ceb' : language.value === 'tagalog' ? 'tl' : 'en';
+  return benefits.value.map((benefit) => localizeBenefit(benefit, localeCode));
+});
 const loading = ref(true);
 const error = ref('');
 const highlightedId = ref<string | null>(null);
@@ -25,8 +31,8 @@ onMounted(async () => {
   try {
     const profile = await profileService.loadProfileOrNull();
     benefits.value = await benefitService.loadRelevantBenefits(profile?.address);
-  } catch (e) {
-    error.value = (e as Error).message;
+  } catch {
+    error.value = 'error';
   } finally {
     loading.value = false;
     highlight();
@@ -56,11 +62,11 @@ watch(() => props.highlightBenefitId, highlight);
 
     <div ref="scroller" class="benefits__scroll">
       <div v-if="loading" class="benefits__center"><LoadingSpinner /></div>
-      <p v-else-if="error" class="benefits__error">Error loading benefits list: {{ error }}</p>
-      <p v-else-if="benefits.length === 0" class="benefits__center">No benefits found.</p>
+      <p v-else-if="error" class="benefits__error">{{ t('error_loading_benefits') }}</p>
+      <p v-else-if="benefits.length === 0" class="benefits__center">{{ t('no_benefits') }}</p>
       <div v-else class="benefits__list">
         <div
-          v-for="(b, i) in benefits"
+          v-for="(b, i) in localizedBenefits"
           :key="b.id"
           class="benefits__item fade-in"
           :style="{ animationDuration: `${250 + i * 60}ms` }"

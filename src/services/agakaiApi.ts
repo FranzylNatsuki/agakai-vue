@@ -1,9 +1,18 @@
 import { appConfig, isAiConfigured } from '@/services/appConfig';
+import type { AppLanguage } from '@/composables/useSettings';
 import { transcribeElevenLabs } from '@/services/elevenLabs';
 import { readSseData } from '@/services/sse';
 import { benefitService } from '@/services/benefitService';
+import { localizeBenefit, type Benefit } from '@/models/benefit';
+import { supplementalCardKind } from '@/services/chatCards';
 import { profileService } from '@/services/profileService';
-import { parseMemory } from '@/services/memory';
+import { memoryUpdateStatus } from '@/services/memoryUpdateStatus';
+import {
+  MEMORY_NOTES_MAX_CHARS,
+  normalizeMemoryHeadings,
+  parseMemory,
+} from '@/services/memory';
+import { generateWithGemini, streamWithGemini } from '@/services/geminiClient';
 import { mockAnswer } from '@/data/mock';
 
 export type AgakEvent =
@@ -18,18 +27,13 @@ export interface ChatRequest {
   audioBytes?: Uint8Array;
   audioFormat?: string;
   audioMimeType?: string;
+  memoryLanguage?: AppLanguage;
+  benefits?: Benefit[];
+  userNotes?: string | null;
   user?: Record<string, unknown> | null;
 }
 
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const FALLBACK_GEMINI_MODELS = ['gemini-3-flash-preview', 'gemini-flash-latest'];
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function candidateModels(): string[] {
-  const models = [appConfig.geminiModel, ...FALLBACK_GEMINI_MODELS].filter(Boolean);
-  return [...new Set(models)];
-}
 
 function normalizeAudioMime(format?: string, mimeType?: string): { mime: string; ext: string } {
   const rawMime = (mimeType ?? '').split(';')[0]?.trim().toLowerCase() || '';
@@ -59,13 +63,21 @@ function buildSystemInstruction(
   user: Record<string, unknown> | null | undefined,
   benefitsList: string,
   userNotes: string | null,
+  cardKind: 'map' | 'benefits' | null,
 ): string {
   return [
     'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
-    'Reply in the language the senior uses in their latest message. If they code-switch, mirror their mix naturally. Honor explicit language preferences they state in conversation or that are recorded in their support notes. Never use the app interface language as the response-language preference.',
+    'RESPONSE LANGUAGE: Reply in the same language as the senior’s latest message. If that message is clearly English, reply only in English—even if saved notes, profile details, benefit data, or earlier messages are in Tagalog or Cebuano. A language preference saved from earlier conversations must never override the clearly used language of the latest message. Follow a different language only when the senior explicitly requests it in their latest message. If they code-switch, mirror their mix naturally. Never infer response language from the app interface language, location, name, or support notes.',
+    'Friend matching and introductions are not available. Do not invent, recommend, or claim to connect the senior with another person. If asked, say this feature is not available yet.',
     'Formatting & tone guidelines:',
     '- Keep answers concise (2 to 3 short sentences or a brief bulleted list) so it is quick to speak aloud and easy for an elderly person to follow.',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
+    cardKind === 'benefits'
+      ? 'An interactive benefits card will appear below this reply. In one short final sentence, explain in the reply language: tap a benefit to ask how to use it, or tap See all to browse the full list.'
+      : '',
+    cardKind === 'map'
+      ? 'An interactive map card will appear below this reply. In one short final sentence, explain in the reply language that the senior can tap the map button below to view the place.'
+      : '',
     user ? `\nSenior Citizen Profile:\n${JSON.stringify(user, null, 2)}` : '',
     benefitsList ? `\nAvailable OSCA / LGU Benefits:\n${benefitsList}` : '',
     userNotes && userNotes.trim()
@@ -80,73 +92,74 @@ function buildSystemInstruction(
  * Updates the senior's rolling memory: a short plain-language summary plus notes.
  * Runs in the background after each exchange.
  */
-async function updateRollingUserNotes(question: string, answer: string): Promise<void> {
-  if (!appConfig.geminiApiKey) return;
+async function updateRollingUserNotes(
+  question: string,
+  answer: string,
+  memoryLanguage: AppLanguage = 'english',
+): Promise<void> {
+  const memoryLanguageName = {
+    english: 'English',
+    cebuano: 'Cebuano',
+    tagalog: 'Tagalog',
+  }[memoryLanguage];
+  memoryUpdateStatus.begin();
   try {
     const memory = await profileService.loadMemory();
     const existing = (memory.notes ?? '').trim();
     const existingSummary = (memory.summary ?? '').trim();
-    for (const model of candidateModels()) {
-      const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: [
-                    'You maintain the memory AgakAI keeps about a Filipino senior citizen.',
-                    `Existing summary:\n${existingSummary || '(None yet)'}`,
-                    `Existing notes:\n${existing || '(None yet)'}`,
-                    `\nNew message from Senior: "${question}"`,
-                    `AgakAI response: "${answer}"`,
-                    '',
-                    'Return JSON with two keys: "summary" and "notes".',
-                    '',
-                    'summary: one or two short sentences addressed to the senior as "you", in their language (Bisaya, Tagalog, or English as used), explaining what Agak remembers about them and how they seem to be feeling lately.',
-                    'Be warm and plain. No clinical labels, no diagnoses, no advice. At most 240 characters.',
-                    'If there is nothing meaningful yet, return an empty string.',
-                    '',
-                    'notes: concise markdown, exactly these headings:',
-                    '**Likes & Interests**',
-                    '- (bullets, or "None shared yet")',
-                    '',
-                    '**Concerns & Recent Topics**',
-                    '- (bullets summarizing what they asked about or need help with)',
-                    '',
-                    'Merge with the existing memory; keep it short. Output JSON only.',
-                  ].join('\n'),
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'OBJECT',
-              properties: { summary: { type: 'STRING' }, notes: { type: 'STRING' } },
-              required: ['summary', 'notes'],
-            },
-          },
-        }),
-      });
-      if (!res.ok) continue;
-      const data = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
-      const parsed = parseMemory(raw);
-      if (parsed) {
-        await profileService.saveMemory(parsed.summary, parsed.notes || existing);
-      }
-      break;
+    const res = await generateWithGemini({
+      contents: [{
+        role: 'user',
+        parts: [{
+          text: [
+            'You maintain the memory AgakAI keeps about a Filipino senior citizen.',
+            `Existing summary:\n${existingSummary || '(None yet)'}`,
+            `Existing notes:\n${existing || '(None yet)'}`,
+            `\nNew message from Senior: "${question}"`,
+            `AgakAI response: "${answer}"`,
+            '',
+            'Return JSON with two keys: "summary" and "notes".',
+            '',
+            `Write the summary and all notes in ${memoryLanguageName}, matching the selected app language even if the conversation used another language. Keep every sentence, both section headings, and every bullet entirely in ${memoryLanguageName}; do not leave phrases in another language.`,
+            'summary: one or two short sentences addressed to the senior as "you", explaining what Agak remembers about them and how they seem to be feeling lately.',
+            'Be warm and plain. No clinical labels, no diagnoses, no advice. Rewrite it to fit within 240 characters; never cut a sentence off.',
+            'If there is nothing meaningful yet, return an empty string.',
+            '',
+            'notes: concise Markdown with exactly two bold section headings.',
+            `Translate both section headings, "Likes & Interests" and "Concerns & Recent Topics", into ${memoryLanguageName}.`,
+            'Translate every bullet and all other note text into the selected memory language. Preserve the senior’s point of view. If a section has no details, leave it with its heading only; do not add placeholder bullets such as "None shared yet" or repeat a detail across sections.',
+            'Rewrite notes to stay under 500 characters total, including headings. Use at most 3 short bullets per section (6 total), with the most useful or recent first; never cut a bullet off.',
+            'Keep durable interests and preferences, plus only a few current or recurring concerns. Merge duplicates, replace outdated details, and remove one-off chatter.',
+            'Do not save a transcript or add a new bullet for every conversation. Output JSON only.',
+          ].join('\n'),
+        }],
+      }],
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: { summary: { type: 'STRING' }, notes: { type: 'STRING' } },
+          required: ['summary', 'notes'],
+        },
+      },
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+    const parsed = parseMemory(raw);
+    if (parsed) {
+      const notes = parsed.notes || existing;
+      const normalizedNotes = notes ? normalizeMemoryHeadings(notes, memoryLanguage) : '';
+      if (normalizedNotes.length > MEMORY_NOTES_MAX_CHARS) return;
+      await profileService.saveMemory(parsed.summary, normalizedNotes, memoryLanguage);
     }
   } catch {
     // Non-critical background task
+  } finally {
+    memoryUpdateStatus.end();
   }
 }
 
@@ -159,8 +172,7 @@ export const agakApi = {
       if (!appConfig.useMockData) {
         yield {
           type: 'error',
-          message:
-            'Gemini API key is not configured yet. Please set VITE_GEMINI_API_KEY in your .env file.',
+          message: 'Agak is not available right now. Please try again later.',
         };
         return;
       }
@@ -209,66 +221,36 @@ export const agakApi = {
       // 2. Gather context (benefits + support notes from Supabase)
       const userAddress = typeof req.user?.address === 'string' ? req.user.address : null;
       const [benefits, userNotes] = await Promise.all([
-        benefitService.loadRelevantBenefits(userAddress),
-        profileService.loadUserNotes(),
+        req.benefits ?? benefitService.loadRelevantBenefits(userAddress),
+        req.userNotes ?? profileService.loadUserNotes(),
       ]);
 
       const benefitsSummary = benefits
-        .map((b) => `- ${b.title} (${b.dateAndLocation}): ${b.description}`)
+        .map((sourceBenefit) => {
+          const b = localizeBenefit(sourceBenefit, 'en');
+          return `- ${b.title} (${b.dateAndLocation}): ${b.description}`;
+        })
         .join('\n');
 
       const systemInstruction = buildSystemInstruction(
         req.user,
         benefitsSummary,
         userNotes,
+        supplementalCardKind(questionText),
       );
 
-      // 3. Stream answer from Gemini API (`streamGenerateContent?alt=sse`) with model fallback
-      let response: Response | null = null;
-      let lastStatus = 500;
-      let lastErrBody = '';
+      // The authenticated Edge Function forwards Google's SSE response body directly;
+      // do not buffer the stream here so answer text can appear as it is generated.
+      const response = await streamWithGemini({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents: [{ role: 'user', parts: [{ text: questionText }] }],
+        generationConfig: { temperature: 0.5, maxOutputTokens: 1200 },
+      });
 
-      for (const model of candidateModels()) {
-        const streamUrl = `${GEMINI_BASE_URL}/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-        const res = await fetch(streamUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: systemInstruction }],
-            },
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: questionText }],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.5,
-              maxOutputTokens: 1200,
-            },
-          }),
-        });
-
-        if (res.ok && res.body) {
-          response = res;
-          break;
-        }
-        lastStatus = res.status;
-        lastErrBody = await res.text().catch(() => '');
-      }
-
-      if (!response || !response.body) {
-        let detail = `HTTP ${lastStatus}`;
-        try {
-          const parsed = JSON.parse(lastErrBody) as { error?: { message?: string } };
-          if (parsed.error?.message) detail = parsed.error.message;
-        } catch {
-          if (lastErrBody) detail = lastErrBody;
-        }
+      if (!response.ok || !response.body) {
         yield {
           type: 'error',
-          message: `Gemini API error (${lastStatus}): ${detail}`,
+          message: 'Agak could not get a response right now. Please try again.',
         };
         return;
       }
@@ -326,7 +308,7 @@ export const agakApi = {
       }
 
       // 4. Update rolling user_notes in Supabase in the background
-      void updateRollingUserNotes(questionText, fullAnswer);
+      void updateRollingUserNotes(questionText, fullAnswer, req.memoryLanguage);
 
       // 5. The player streams ElevenLabs audio for the completed answer.
       yield { type: 'done', answer: fullAnswer };

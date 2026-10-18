@@ -11,13 +11,19 @@
   --a1: #1b3a9e;
   --a2: #2f5fd8;
   --a3: #2f5fd8;
+  --brand-blue: #4f84ad;
+  --brand-slate: #344454;
+  --brand-coral: #f39573;
   --grad: linear-gradient(135deg, var(--a1), var(--a2));
   --glow: rgba(30, 64, 175, 0.3);
   --g1: rgba(47, 95, 216, 0.2);
   --g2: transparent;
   --grid: rgba(15, 23, 42, 0.06);
   --danger: #b3261e;
+  --danger-soft: rgba(179, 38, 30, 0.08);
+  --danger-border: rgba(179, 38, 30, 0.24);
   --fs: 20px;
+  --text-scale: 1;
   color-scheme: light;
 
   /* Legacy aliases so any existing helper components continue working */

@@ -6,6 +6,7 @@ import BottomSheet from '@/components/common/BottomSheet.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import MarkdownContent from '@/components/common/MarkdownContent.vue';
 import { profileService } from '@/services/profileService';
+import { useSettings } from '@/composables/useSettings';
 
 /** "?" sheet: the senior's rolling support notes (`user_notes`). */
 const props = defineProps<{ open: boolean }>();
@@ -14,6 +15,7 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 const loading = ref(false);
 const notes = ref<string | null>(null);
 const summary = ref('');
+const { t } = useSettings();
 
 // Memory changes after every exchange, so refetch each time the sheet opens.
 watch(
@@ -32,10 +34,16 @@ watch(
 <template>
   <BottomSheet :open="open" @close="emit('close')">
     <div class="notes__head">
-      <IonIcon class="notes__icon" :icon="bulbOutline" />
-      <h2 class="notes__title">Support notes</h2>
+      <div class="notes__heading">
+        <IonIcon class="notes__icon" :icon="bulbOutline" />
+        <h2 class="notes__title">Support notes</h2>
+      </div>
+      <button class="notes__close" type="button" :aria-label="t('close_notes')" @click="emit('close')">
+        <span aria-hidden="true">×</span>
+        {{ t('close_notes') }}
+      </button>
     </div>
-    <p class="notes__sub">How AgakAI is getting to know Lola/Lolo — updated after each conversation.</p>
+    <p class="notes__sub">Your questions, interests, and concerns.</p>
 
     <p v-if="summary" class="notes__summary">{{ summary }}</p>
 
@@ -52,7 +60,34 @@ watch(
 .notes__head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+}
+.notes__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.notes__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-slate-border);
+  border-radius: 14px;
+  background: var(--c-pale-blue-bg);
+  color: var(--c-navy);
+  font-size: calc(var(--fs) * 0.7);
+  line-height: 1.2;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.notes__close span {
+  font-size: 1.3em;
+  line-height: 1;
 }
 .notes__icon {
   font-size: 24px;

@@ -14,7 +14,9 @@ test('senior identity helpers', async (t) => {
 
     await t.test('Senior ID maps to a stable internal address', () => {
       assert.equal(normalizeSeniorId('  SC-2024-0001 '), 'sc-2024-0001');
+      assert.equal(normalizeSeniorId('  sc-2024-0001 '), 'sc-2024-0001');
       assert.equal(seniorEmail('  SC-2024-0001 '), 'sc-2024-0001@seniors.agakai.local');
+      assert.equal(seniorEmail('  sc-2024-0001 '), 'sc-2024-0001@seniors.agakai.local');
       assert.equal(seniorEmail('sc 2024 0001'), 'sc20240001@seniors.agakai.local');
     });
 

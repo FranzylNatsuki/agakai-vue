@@ -12,7 +12,7 @@ export async function getVoiceAuthHeaders(): Promise<Record<string, string>> {
 }
 
 export const onboardingSpeechLanguage = (language: AppLanguage): string =>
-  language === 'bisaya' ? 'ceb' : language === 'tagalog' ? 'fil' : 'en';
+  language === 'cebuano' ? 'ceb' : language === 'tagalog' ? 'fil' : 'en';
 
 export async function transcribeElevenLabs(
   bytes: Uint8Array, mime: string, extension: string,
@@ -34,8 +34,12 @@ export async function transcribeElevenLabs(
 
 /** Plays the Supabase-proxied ElevenLabs PCM stream (mono, 24 kHz). */
 export async function playElevenLabsSpeech(
-  text: string, signal: AbortSignal, onStart: () => void, language?: AppLanguage,
-): Promise<void> {
+  text: string,
+  signal: AbortSignal,
+  onStart: () => void,
+  language?: AppLanguage,
+  onAudioReady?: (pcm: Uint8Array) => void,
+): Promise<Uint8Array> {
   const context = new AudioContext({ sampleRate: 24000 });
   const sources = new Set<AudioBufferSourceNode>();
   const stop = () => {
@@ -44,6 +48,8 @@ export async function playElevenLabsSpeech(
   };
   signal.addEventListener('abort', stop, { once: true });
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const audioChunks: Uint8Array[] = [];
+  let audioLength = 0;
   const wait = (ms: number) => new Promise<void>((resolve, reject) => {
     if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
     const abort = () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); };
@@ -75,6 +81,8 @@ export async function playElevenLabsSpeech(
       signal.throwIfAborted();
       const { value, done } = await reader.read();
       if (done) break;
+      audioChunks.push(value.slice());
+      audioLength += value.length;
       const bytes = new Uint8Array(value.length + (pendingByte === undefined ? 0 : 1));
       if (pendingByte !== undefined) bytes[0] = pendingByte;
       bytes.set(value, pendingByte === undefined ? 0 : 1);
@@ -101,10 +109,71 @@ export async function playElevenLabsSpeech(
       }
     }
     if (pendingByte !== undefined || !started) throw new Error('Incomplete speech audio');
+    const pcm = new Uint8Array(audioLength);
+    let offset = 0;
+    for (const chunk of audioChunks) {
+      pcm.set(chunk, offset);
+      offset += chunk.length;
+    }
+    onAudioReady?.(pcm);
     while (sources.size) await wait(40);
+    return pcm;
   } finally {
     signal.removeEventListener('abort', stop);
     await reader?.cancel().catch(() => {});
+    stop();
+  }
+}
+
+/** Replays cached ElevenLabs PCM locally without making another request. */
+export async function playElevenLabsPcm(
+  pcm: Uint8Array, signal: AbortSignal, onStart: () => void,
+): Promise<void> {
+  if (pcm.byteLength === 0 || pcm.byteLength % 2 !== 0) throw new Error('Incomplete speech audio');
+  const context = new AudioContext({ sampleRate: 24000 });
+  const sources = new Set<AudioBufferSourceNode>();
+  const stop = () => {
+    for (const source of sources) { try { source.stop(); } catch { /* already ended */ } }
+    void context.close().catch(() => {});
+  };
+  signal.addEventListener('abort', stop, { once: true });
+  let abortListener: (() => void) | null = null;
+  const wait = (ms: number) => new Promise<void>((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+    const abort = () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, ms);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  try {
+    signal.throwIfAborted();
+    void context.resume().catch(() => {});
+    for (let i = 0; context.state === 'suspended' && i < 20; i++) await wait(50);
+    if (context.state !== 'running') throw new Error('Audio playback requires a user gesture');
+
+    const samples = pcm.byteLength / 2;
+    const buffer = context.createBuffer(1, samples, 24000);
+    const channel = buffer.getChannelData(0);
+    const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+    for (let i = 0; i < samples; i++) channel[i] = view.getInt16(i * 2, true) / 32768;
+
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    sources.add(source);
+    const completed = new Promise<void>((resolve) => {
+      source.onended = () => { sources.delete(source); source.disconnect(); resolve(); };
+    });
+    const aborted = new Promise<void>((resolve) => {
+      abortListener = () => resolve();
+      signal.addEventListener('abort', abortListener, { once: true });
+    });
+    source.start();
+    onStart();
+    await Promise.race([completed, aborted]);
+    signal.throwIfAborted();
+  } finally {
+    signal.removeEventListener('abort', stop);
+    if (abortListener) signal.removeEventListener('abort', abortListener);
     stop();
   }
 }

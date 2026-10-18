@@ -2,5 +2,5 @@
 
 - `logo-original-damaged.png`: preserved input.
 - `logo-repaired.png`: new localized shoulder approximation, not recovered original pixels.
-- `logo.png`, `splash_logo.png`, `icon.png`, `favicon.png`: app assets derived from the repair.
+- `logo.png`, `splash_logo.png`, `splash-logo-cropped.png`, `icon.png`, `favicon.png`: app assets derived from the repair. The cropped splash version removes only surrounding white space so the artwork and tagline fit the startup display.
 - `scripts/repair-logo.py` reproduces the shoulder repair using ffmpeg. Original lettering and pixels outside the repair rectangle are unchanged. Keep these files in Git, not `/tmp`.

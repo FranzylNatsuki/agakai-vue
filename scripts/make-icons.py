@@ -1,6 +1,4 @@
-"""Build the in-app mark (transparent) and launcher icons (white rounded card).
-Source art is public/assets/logo-repaired.png; requires ffmpeg only.
-"""
+"""Build in-app, launcher, and Android splash artwork; requires ffmpeg only."""
 import pathlib
 import subprocess
 import tempfile
@@ -8,6 +6,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'public/assets'
 LOGO = ASSETS / 'logo-repaired.png'
+SPLASH_LOGO = ASSETS / 'splash_logo.png'
 RES = ROOT / 'android/app/src/main/res'
 TMP = pathlib.Path(tempfile.mkdtemp())
 W, H = 1408, 768
@@ -43,6 +42,14 @@ def emblem_box():
 
 
 def main():
+    # Crop the large white margins for the in-app startup splash. Keep this
+    # artwork out of Android's masked system-icon slot.
+    subprocess.run([
+        'ffmpeg', '-v', 'error', '-y', '-i', str(SPLASH_LOGO),
+        '-vf', 'crop=620:680:394:44', '-frames:v', '1',
+        str(ASSETS / 'splash-logo-cropped.png'),
+    ], check=True)
+
     x0, y0, x1, y1 = emblem_box()
     pad = 6
     x0, y0 = max(0, x0 - pad), max(0, y0 - pad)

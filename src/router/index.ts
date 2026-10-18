@@ -4,7 +4,7 @@ import { authService } from '@/services/authService';
 
 const ONBOARDING_DONE_KEY = 'agakai_onboarding_complete_v2';
 const routes: Array<RouteRecordRaw> = [
-  { path: '/', redirect: '/login' },
+  { path: '/', redirect: '/onboarding' },
   { path: '/onboarding', name: 'onboarding', component: () => import('@/views/OnboardingView.vue') },
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
   { path: '/app', name: 'app', component: () => import('@/views/AppShellView.vue') },
@@ -25,6 +25,7 @@ router.beforeEach(async (to) => {
   if (to.name === 'login' && signedIn) {
     return onboardingDone ? { name: 'app' } : { name: 'onboarding' };
   }
+  if (to.name === 'login' && !onboardingDone) return { name: 'onboarding' };
   if (to.name === 'onboarding' && onboardingDone) {
     return signedIn ? { name: 'app' } : { name: 'login' };
   }

@@ -11,26 +11,33 @@ import ProcessingBody from '@/components/voice/ProcessingBody.vue';
 import AnsweringBody from '@/components/voice/AnsweringBody.vue';
 import NotesSheet from '@/components/voice/NotesSheet.vue';
 import { agakApi } from '@/services/agakaiApi';
+import { LiveTranscription } from '@/services/liveTranscription';
 import { voiceRecorder } from '@/services/voiceRecorder';
 import { ttsPlayer } from '@/services/ttsPlayer';
 import { profileService } from '@/services/profileService';
+import { useSettings } from '@/composables/useSettings';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'answering';
 
 const emit = defineEmits<{ (e: 'back'): void }>();
+const { language, t } = useSettings();
 const state = ref<VoiceState>('idle');
 const question = ref('');
+const liveTranscript = ref('');
 const answer = ref('');
 const chatDone = ref(false);
 const chatError = ref(false);
 const chatErrorMessage = ref('');
-const soundLevel = ref(0);
 const notesOpen = ref(false);
 const toast = ref({ open: false, message: '' });
 
 /** Bumped on every new ask/reset so stale in-flight streams are discarded. */
 let chatGen = 0;
-let unsubscribeAmp: (() => void) | null = null;
+let unsubscribePcm: (() => void) | null = null;
+let unsubscribeTranscript: (() => void) | null = null;
+let liveTranscription: LiveTranscription | null = null;
+let transcriptionConnect: Promise<LiveTranscription> | null = null;
+let pendingPcm: string[] = [];
 let audioChunks: Uint8Array[] = [];
 
 function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
@@ -67,31 +74,93 @@ async function startListening() {
     showToast("Voice isn't available on this device right now. You can still type your question below.");
     return;
   }
-  unsubscribeAmp?.();
-  unsubscribeAmp = voiceRecorder.onAmplitude((db) => {
-    if (state.value === 'listening') soundLevel.value = db;
+
+  liveTranscript.value = '';
+  pendingPcm = [];
+  unsubscribePcm?.();
+  unsubscribeTranscript?.();
+  liveTranscription?.close();
+  liveTranscription = null;
+  transcriptionConnect = null;
+  unsubscribePcm = voiceRecorder.onPcmChunk((chunk) => {
+    if (liveTranscription) liveTranscription.sendAudio(chunk);
+    else if (pendingPcm.length < 48) pendingPcm.push(chunk);
   });
-  soundLevel.value = 0;
   state.value = 'listening';
+
+  const connection = LiveTranscription.connect();
+  transcriptionConnect = connection;
+  try {
+    const session = await connection;
+    if (transcriptionConnect !== connection) {
+      session.close();
+      return;
+    }
+    liveTranscription = session;
+    unsubscribeTranscript = session.onTranscript((partial, committed) => {
+      liveTranscript.value = [committed, partial].filter(Boolean).join(' ').trim();
+    });
+    for (const chunk of pendingPcm) session.sendAudio(chunk);
+    pendingPcm = [];
+  } catch {
+    if (transcriptionConnect !== connection) return;
+    transcriptionConnect = null;
+    pendingPcm = [];
+    unsubscribePcm?.();
+    unsubscribePcm = null;
+    if (state.value === 'listening') {
+      await voiceRecorder.cancel();
+      state.value = 'idle';
+      showToast('Live transcription is unavailable. You can type your question instead.');
+    }
+  }
 }
 
 async function stopListening() {
   if (state.value !== 'listening') return;
-  unsubscribeAmp?.();
-  unsubscribeAmp = null;
   state.value = 'processing';
-  const bytes = await voiceRecorder.stop();
-  if (!bytes || bytes.length === 0) {
+
+  // Stop capture and flush its last live PCM frames. The recording itself is discarded.
+  await voiceRecorder.stop();
+  unsubscribePcm?.();
+  unsubscribePcm = null;
+
+  let session = liveTranscription;
+  if (!session && transcriptionConnect) {
+    session = await transcriptionConnect.catch(() => null);
+  }
+  transcriptionConnect = null;
+  pendingPcm = [];
+  liveTranscription = null;
+  if (!session) {
+    unsubscribeTranscript?.();
+    unsubscribeTranscript = null;
+    liveTranscript.value = '';
     state.value = 'idle';
-    showToast("I didn't catch that. Please try again.");
+    showToast('I could not finish speech recognition. You can type your question instead.');
     return;
   }
+
+  let transcript = '';
+  try {
+    transcript = await session.commit();
+  } catch {
+    // Do not send an unfinalized partial transcript to Agak.
+  }
+  session.close();
+  unsubscribeTranscript?.();
+  unsubscribeTranscript = null;
+  if (!transcript.trim()) {
+    liveTranscript.value = '';
+    state.value = 'idle';
+    showToast("I didn't catch that clearly. Please try again or type your question.");
+    return;
+  }
+
+  question.value = transcript.trim();
+  liveTranscript.value = question.value;
   audioChunks = [];
-  await runChat({
-    audioBytes: bytes,
-    audioFormat: voiceRecorder.getFormat(),
-    audioMimeType: voiceRecorder.getMimeType(),
-  });
+  await runChat({ text: question.value });
 }
 
 // ---- chat ---------------------------------------------------------------
@@ -124,7 +193,7 @@ async function runChat(req: {
   if (gen !== chatGen) return;
 
   try {
-    for await (const event of agakApi.chatStream({ ...req, user })) {
+    for await (const event of agakApi.chatStream({ ...req, user, memoryLanguage: language.value })) {
       if (gen !== chatGen) return; // superseded by a newer ask
       switch (event.type) {
         case 'transcript':
@@ -148,28 +217,35 @@ async function runChat(req: {
         case 'error':
           state.value = 'answering';
           chatError.value = true;
-          chatErrorMessage.value = event.message;
+          chatErrorMessage.value = t('chat_error');
           await ttsPlayer.stop();
           break;
       }
     }
-  } catch (e) {
+  } catch {
     if (gen !== chatGen) return;
     await ttsPlayer.stop();
     state.value = 'answering';
     chatError.value = true;
-    chatErrorMessage.value = `Network error: ${(e as Error).message}`;
+    chatErrorMessage.value = t('chat_error');
   }
 }
 
 async function reset() {
   chatGen++; // discard any in-flight stream
+  transcriptionConnect = null;
+  pendingPcm = [];
+  liveTranscription?.close();
+  liveTranscription = null;
+  unsubscribePcm?.();
+  unsubscribePcm = null;
+  unsubscribeTranscript?.();
+  unsubscribeTranscript = null;
   await voiceRecorder.cancel();
-  unsubscribeAmp?.();
-  unsubscribeAmp = null;
+  liveTranscript.value = '';
   await ttsPlayer.stop();
+  ttsPlayer.clearCache();
   audioChunks = [];
-  soundLevel.value = 0;
   state.value = 'idle';
   question.value = '';
   answer.value = '';
@@ -186,9 +262,15 @@ function onMicTap() {
 
 onBeforeUnmount(() => {
   chatGen++;
-  unsubscribeAmp?.();
+  transcriptionConnect = null;
+  pendingPcm = [];
+  liveTranscription?.close();
+  liveTranscription = null;
+  unsubscribePcm?.();
+  unsubscribeTranscript?.();
   void voiceRecorder.cancel();
   void ttsPlayer.stop();
+  ttsPlayer.clearCache();
 });
 </script>
 
@@ -204,7 +286,7 @@ onBeforeUnmount(() => {
       <!-- Gentle crossfade between states so changes never hard-cut -->
       <Transition name="body-fade" mode="out-in">
         <IdleBody v-if="state === 'idle'" key="idle" @ask="ask" />
-        <ListeningBody v-else-if="state === 'listening'" key="listening" />
+        <ListeningBody v-else-if="state === 'listening'" key="listening" :transcript="liveTranscript" />
         <ProcessingBody v-else-if="state === 'processing'" key="processing" />
         <AnsweringBody
           v-else
@@ -222,7 +304,6 @@ onBeforeUnmount(() => {
     <MicDock
       :listening="state === 'listening'"
       :label="dockLabel"
-      :sound-level="soundLevel"
       @mic-tap="onMicTap"
     />
 

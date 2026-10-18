@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { card, mic } from 'ionicons/icons';
 import GreetingHeader from '@/components/home/GreetingHeader.vue';
@@ -10,9 +10,9 @@ import ActionTile from '@/components/home/ActionTile.vue';
 import ProfileModal from '@/components/home/ProfileModal.vue';
 import LogoutModal from '@/components/home/LogoutModal.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
-import { useSettings } from '@/composables/useSettings';
+import { APP_LANGUAGES, useSettings } from '@/composables/useSettings';
 import { firstName, type Profile } from '@/models/profile';
-import type { Benefit } from '@/models/benefit';
+import { localizeBenefit, type Benefit } from '@/models/benefit';
 import { profileService } from '@/services/profileService';
 import { benefitService } from '@/services/benefitService';
 import { authService } from '@/services/authService';
@@ -25,7 +25,7 @@ const emit = defineEmits<{
 }>();
 
 const router = useRouter();
-const { t } = useSettings();
+const { t, language } = useSettings();
 
 const menuOpen = ref(false);
 const profileOpen = ref(false);
@@ -36,6 +36,10 @@ const profileLoading = ref(true);
 const profileError = ref('');
 
 const benefits = ref<Benefit[]>([]);
+const localizedBenefits = computed(() => {
+  const localeCode = APP_LANGUAGES.find((item) => item.id === language.value)?.code ?? 'en';
+  return benefits.value.map((benefit) => localizeBenefit(benefit, localeCode));
+});
 const benefitsLoading = ref(true);
 const benefitsError = ref('');
 
@@ -43,16 +47,16 @@ onMounted(async () => {
   // TODO(backend): real profile + benefit loading lives in the services.
   try {
     profile.value = await profileService.loadProfile();
-  } catch (e) {
-    profileError.value = (e as Error).message;
+  } catch {
+    profileError.value = 'error';
   } finally {
     profileLoading.value = false;
   }
 
   try {
     benefits.value = await benefitService.loadRelevantBenefits(profile.value?.address);
-  } catch (e) {
-    benefitsError.value = (e as Error).message;
+  } catch {
+    benefitsError.value = 'error';
   } finally {
     benefitsLoading.value = false;
   }
@@ -96,16 +100,19 @@ async function confirmLogout() {
         :view-all-label="t('view_all')"
         @view-all="emit('viewAllBenefits')"
       />
+      <p v-if="!benefitsLoading && !benefitsError && benefits.length" class="home__benefit-hint">
+        {{ t('benefit_tap_hint') }}
+      </p>
 
       <div class="home__benefits">
         <div v-if="benefitsLoading" class="home__center"><LoadingSpinner /></div>
         <p v-else-if="benefitsError" class="home__error">
-          {{ t('error_loading_benefits') }}: {{ benefitsError }}
+          {{ t('error_loading_benefits') }}
         </p>
         <p v-else-if="benefits.length === 0">{{ t('no_benefits') }}</p>
         <template v-else>
           <BenefitListItem
-            v-for="b in benefits.slice(0, 3)"
+            v-for="b in localizedBenefits.slice(0, 3)"
             :key="b.id"
             :benefit="b"
             @tap="emit('openBenefit', $event)"
@@ -164,6 +171,12 @@ async function confirmLogout() {
 }
 .home__content {
   padding: 16px 24px;
+}
+.home__benefit-hint {
+  margin: 8px 0 0;
+  color: var(--c-slate-text);
+  font-size: calc(var(--fs) * 0.78);
+  line-height: 1.4;
 }
 .home__benefits {
   display: flex;

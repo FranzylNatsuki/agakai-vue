@@ -7,6 +7,9 @@ project_id = "AgakAI"
 [functions.elevenlabs-voice]
 verify_jwt = true
 
+[functions.gemini-ai]
+verify_jwt = true
+
 [api]
 enabled = true
 # Port to use for the API URL.

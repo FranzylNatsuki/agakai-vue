@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { IonPage, IonIcon } from '@ionic/vue';
+import { App as CapacitorApp } from '@capacitor/app';
 import { eyeOffOutline, eyeOutline } from 'ionicons/icons';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { authService } from '@/services/authService';
 import { ttsPlayer } from '@/services/ttsPlayer';
-import { useSettings } from '@/composables/useSettings';
+import { APP_LANGUAGES, useSettings } from '@/composables/useSettings';
 
 const router = useRouter();
-const { t } = useSettings();
+const route = useRoute();
+const { language, t } = useSettings();
 
 const seniorId = ref('');
 const pin = ref('');
@@ -17,30 +19,92 @@ const obscure = ref(true);
 const isLoading = ref(false);
 const errorMessage = ref('');
 const showError = ref(false);
+const showOnboardingWelcome = ref(false);
+let loginAudio: HTMLAudioElement | null = null;
+let errorTimer: ReturnType<typeof setTimeout> | null = null;
+let removeAppStateListener: (() => void) | null = null;
+let loginUnmounted = false;
 
-function fail(message: string) {
-  errorMessage.value = message;
-  showError.value = true;
-  setTimeout(() => {
-    showError.value = false;
-  }, 3200);
+function stopLoginAudio() {
+  if (!loginAudio) return;
+  const audio = loginAudio;
+  loginAudio = null;
+  audio.onended = null;
+  audio.onerror = null;
+  audio.pause();
+  try { audio.currentTime = 0; } catch { /* media may not be ready */ }
 }
+
+function playLoginAudio(name: string) {
+  stopLoginAudio();
+  const locale = APP_LANGUAGES.find((option) => option.id === language.value)?.code ?? 'en';
+  const audio = new Audio(`/audio/login/${locale}/${name}.wav`);
+  loginAudio = audio;
+  const finish = () => {
+    if (loginAudio === audio) loginAudio = null;
+  };
+  audio.onended = finish;
+  audio.onerror = finish;
+  void audio.play().catch(finish);
+}
+
+function fail(key: string, audioName: string) {
+  errorMessage.value = t(key);
+  showError.value = true;
+  if (errorTimer) clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => {
+    showError.value = false;
+  }, 5000);
+  playLoginAudio(audioName);
+}
+
+onMounted(async () => {
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pagehide', stopLoginAudio);
+  showOnboardingWelcome.value = route.query.welcome === 'onboarding';
+  if (showOnboardingWelcome.value) {
+    playLoginAudio('guidance');
+    void router.replace({ name: 'login' });
+  }
+  const listener = await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+    if (!isActive) stopLoginAudio();
+  }).catch(() => null);
+  if (!listener) return;
+  if (loginUnmounted) void listener.remove();
+  else removeAppStateListener = () => { void listener.remove(); };
+});
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') stopLoginAudio();
+}
+
+onBeforeUnmount(() => {
+  loginUnmounted = true;
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  window.removeEventListener('pagehide', stopLoginAudio);
+  removeAppStateListener?.();
+  stopLoginAudio();
+  if (errorTimer) clearTimeout(errorTimer);
+});
 
 async function login() {
   const id = seniorId.value.trim();
   const code = pin.value.trim();
   if (!id || !code) {
-    fail(t('login_fill_fields')); 
+    fail('login_fill_fields', 'fill-fields');
     return;
   }
 
   isLoading.value = true;
+  stopLoginAudio();
   void ttsPlayer.stop();
   try {
     await authService.login(id, code);
-    await router.replace({ name: 'onboarding', query: { step: 'voice' } });
-  } catch {
-    fail(t('login_invalid_credentials'));
+    await router.replace({ name: 'app' });
+  } catch (error) {
+    const message = String((error as Error)?.message ?? error).toLowerCase();
+    const networkFailure = /network|fetch|timeout|offline|connection/.test(message);
+    fail(networkFailure ? 'login_network_error' : 'login_invalid_credentials', networkFailure ? 'network-error' : 'invalid-credentials');
   } finally {
     isLoading.value = false;
   }
@@ -57,18 +121,24 @@ function onPinInput(event: Event) {
     <div class="agakai-login">
       <section class="login-main fade-in">
         <img class="login-logo" src="/assets/logo.png?v=repair2" alt="AgakAI" />
+        <div v-if="showOnboardingWelcome" class="login-guidance-group">
+          <p class="login-guidance">{{ t('login_guidance') }}</p>
+        </div>
 
         <form class="login-card fade-up" @submit.prevent="login">
           <div class="field">
             <label class="field__label" for="senior-id">{{ t('senior_id') }}</label>
             <div class="field__box">
-              <svg class="i field__icon"><use href="#user" /></svg>
               <input
                 id="senior-id"
                 v-model="seniorId"
+                class="senior-id-input"
                 type="text"
                 :placeholder="t('login_id_placeholder')"
                 autocomplete="username"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
               />
             </div>
           </div>
@@ -138,6 +208,23 @@ function onPinInput(event: Event) {
   object-fit: contain;
 }
 
+.login-guidance-group {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  max-width: 440px;
+  margin-top: -8px;
+}
+
+.login-guidance {
+  max-width: 440px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .login-card {
   width: 100%;
   background: var(--glass);
@@ -159,7 +246,7 @@ function onPinInput(event: Event) {
 }
 
 .field__label {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale, 1));
   font-weight: 700;
   color: var(--muted);
   padding: 0 4px;
@@ -179,12 +266,6 @@ function onPinInput(event: Event) {
 
 .field__box:focus-within {
   border-color: var(--a2);
-}
-
-.field__icon {
-  width: 22px;
-  height: 22px;
-  color: var(--a2);
 }
 
 .field__box input {
@@ -260,7 +341,7 @@ function onPinInput(event: Event) {
   padding: 12px 20px;
   border-radius: 24px;
   font-weight: 700;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale, 1));
   opacity: 0;
   transition: opacity 0.2s;
   pointer-events: none;

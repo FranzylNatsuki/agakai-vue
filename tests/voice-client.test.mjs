@@ -107,6 +107,25 @@ test('ElevenLabs-only client', async (t) => {
       assert.equal(calls, 1);
       assert.equal(FakeAudioContext.instances.at(-1).state, 'closed');
     });
+    await t.test('replays generated speech from the conversation cache', async () => {
+      ttsPlayer.clearCache();
+      let calls = 0;
+      globalThis.fetch = async (url) => {
+        assert.equal(url, 'https://agakai-test.supabase.co/functions/v1/elevenlabs-voice/tts');
+        calls++;
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new Uint8Array([0, 0, 0, 0]));
+          controller.close();
+        } }), { headers: { 'Content-Type': 'audio/pcm' } });
+      };
+      await ttsPlayer.play(null, 'Cached answer');
+      await ttsPlayer.play(null, 'Cached answer');
+      assert.equal(calls, 1, 'replay should use cached PCM without another TTS request');
+      ttsPlayer.clearCache();
+      await ttsPlayer.play(null, 'Cached answer');
+      assert.equal(calls, 2, 'clearing the conversation cache should require new audio');
+      ttsPlayer.clearCache();
+    });
     await t.test('Stop aborts the request, settles playback and resets speaking state', async () => {
       let signal;
       let started;

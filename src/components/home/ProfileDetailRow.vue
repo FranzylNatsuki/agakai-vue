@@ -11,25 +11,26 @@ defineProps<{ label: string; value: string; last?: boolean }>();
 
 <style scoped>
 .detail-row {
-  display: flex;
-  align-items: flex-start;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--c-slate-100);
+  display: grid;
+  gap: 5px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--c-slate-border);
 }
 .detail-row--last {
   border-bottom: none;
 }
 .detail-row__label {
-  width: 100px;
-  flex-shrink: 0;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--c-slate-500);
+  font-size: 1rem;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--c-slate-text);
 }
 .detail-row__value {
-  flex: 1;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--c-forest-dark);
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.4;
+  font-weight: 650;
+  color: var(--c-ink);
+  overflow-wrap: anywhere;
 }
 </style>

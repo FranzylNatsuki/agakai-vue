@@ -9,7 +9,7 @@ const { t } = useSettings();
 </script>
 
 <template>
-  <AppModal :open="open" :title="t('log_out')" :confirm-text="t('log_out')" @cancel="emit('cancel')" @confirm="emit('confirm')">
+  <AppModal :open="open" :title="t('log_out')" :confirm-text="t('log_out')" content-size="large" @cancel="emit('cancel')" @confirm="emit('confirm')">
     <p class="logout-modal__text">{{ t('are_you_sure_logout') }}</p>
   </AppModal>
 </template>
@@ -17,7 +17,8 @@ const { t } = useSettings();
 <style scoped>
 .logout-modal__text {
   margin: 0;
-  font-size: 0.875rem;
-  color: var(--c-forest-body);
+  font-size: inherit;
+  line-height: 1.45;
+  color: var(--muted);
 }
 </style>
