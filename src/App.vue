@@ -4,7 +4,7 @@ import ResponsiveFrame from '@/components/common/ResponsiveFrame.vue';
 </script>
 
 <template>
-  <!-- Global SVG icon sprite from Tala -->
+  <!-- Global SVG icon sprite from AgakAI -->
   <svg width="0" height="0" style="position: absolute; pointer-events: none" aria-hidden="true">
     <defs>
       <symbol id="kb" viewBox="0 0 24 24">
@@ -69,16 +69,16 @@ import ResponsiveFrame from '@/components/common/ResponsiveFrame.vue';
   </svg>
 
   <ResponsiveFrame>
-    <IonApp class="tala-ion-app">
+    <IonApp class="agakai-ion-app">
       <IonRouterOutlet />
     </IonApp>
   </ResponsiveFrame>
 </template>
 
 <style>
-.tala-ion-app,
-.tala-ion-app ion-router-outlet,
-.tala-ion-app .ion-page {
+.agakai-ion-app,
+.agakai-ion-app ion-router-outlet,
+.agakai-ion-app .ion-page {
   background: transparent !important;
 }
 </style>

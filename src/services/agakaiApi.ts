@@ -211,7 +211,7 @@ function buildSystemInstruction(
         : 'Respond primarily in clear, warm, easy-to-understand Philippine English, unless the senior explicitly asks in Bisaya or Tagalog.';
 
   return [
-    'You are Tala (AgakAI), a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
+    'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
     langInstruction,
     'Formatting & tone guidelines:',
     '- Keep answers concise (2 to 4 short sentences or a brief bulleted list) so it is easy for an elderly person to read and listen to.',
@@ -500,7 +500,7 @@ export const agakApi = {
       if (!fullAnswer.trim()) {
         yield {
           type: 'error',
-          message: 'Tala could not generate an answer right now. Please try again.',
+          message: 'AgakAI could not generate an answer right now. Please try again.',
         };
         return;
       }
@@ -518,7 +518,7 @@ export const agakApi = {
     } catch (err) {
       yield {
         type: 'error',
-        message: (err as Error).message || 'Something went wrong while contacting Tala.',
+        message: (err as Error).message || 'Something went wrong while contacting AgakAI.',
       };
     }
   },

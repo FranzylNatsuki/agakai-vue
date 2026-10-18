@@ -106,7 +106,7 @@ const lguBadge = computed(() => {
   return firstPart ? `${firstPart} LGU` : 'Lapu-Lapu City LGU';
 });
 
-/** Map project benefits to Tala's 4-column icon/title/subtitle/tag structure. */
+/** Map project benefits to AgakAI's 4-column icon/title/subtitle/tag structure. */
 const mappedBenefits = computed(() => {
   if (benefits.value.length === 0) {
     return [
@@ -532,7 +532,7 @@ async function handleLogout() {
 
 <template>
   <IonPage>
-    <div class="tala-shell">
+    <div class="agakai-shell">
       <!-- Top Bar -->
       <header class="top">
         <button class="logo" type="button" title="Reset conversation" @click="resetToHome">
@@ -541,7 +541,7 @@ async function handleLogout() {
               <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z" />
             </svg>
           </span>
-          Tala
+          AgakAI
         </button>
         <button class="chip" type="button" @click="openProfileSheet">
           <svg class="i"><use href="#check" /></svg>
@@ -773,7 +773,7 @@ async function handleLogout() {
             </svg>
           </span>
           <span>
-            Tala
+            AgakAI
             <small>Senior benefits helper</small>
           </span>
         </div>
@@ -952,7 +952,7 @@ async function handleLogout() {
 </template>
 
 <style scoped>
-.tala-shell {
+.agakai-shell {
   height: 100%;
   display: flex;
   flex-direction: column;

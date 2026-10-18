@@ -1,4 +1,4 @@
-/* Global styles — Tala Senior Benefits Agent design */
+/* Global styles — AgakAI Senior Benefits Agent design */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -32,7 +32,7 @@ input:focus-visible {
   outline-offset: 3px;
 }
 
-/* Shared SVG icon style from Tala */
+/* Shared SVG icon style from AgakAI */
 .i {
   width: 26px;
   height: 26px;
