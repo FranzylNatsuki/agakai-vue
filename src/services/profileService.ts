@@ -8,6 +8,8 @@ import type { Profile } from '@/models/profile';
  */
 let currentUserId: number | null = null;
 
+const USER_NOTES_STORAGE_KEY = 'agakai_user_notes';
+
 export const profileService = {
   /** Called right after a successful login with the `user` row id. */
   setCurrentUser(userId: number): void {
@@ -34,8 +36,19 @@ export const profileService = {
 
   /** TODO(backend): select user_notes from `user`. Return null on failure. */
   async loadUserNotes(): Promise<string | null> {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(USER_NOTES_STORAGE_KEY);
+      if (saved !== null) return saved;
+    }
     if (appConfig.useMockData) return mockUserNotes;
     return null;
+  },
+
+  /** Persist updated rolling support notes. */
+  async saveUserNotes(notes: string): Promise<void> {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(USER_NOTES_STORAGE_KEY, notes);
+    }
   },
 
   /** Clear current user (e.g. on log out). */

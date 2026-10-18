@@ -1,23 +1,200 @@
 /**
- * Microphone capture placeholder.
- * TODO(backend/native): implement with MediaRecorder or a Capacitor
- * audio-recording plugin; return m4a/webm bytes on stop().
+ * Microphone capture using MediaRecorder + Web Audio API for live dB metering.
  */
+
+const CANDIDATE_MIME_TYPES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/wav',
+];
+
+function pickMimeType(): string {
+  if (typeof MediaRecorder === 'undefined') return '';
+  for (const type of CANDIDATE_MIME_TYPES) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return '';
+}
+
+function extensionForMime(mime: string): string {
+  if (mime.includes('mp4') || mime.includes('m4a')) return 'm4a';
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('wav')) return 'wav';
+  return 'webm';
+}
+
+let mediaStream: MediaStream | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let recordedChunks: BlobPart[] = [];
+let activeMimeType = 'audio/webm';
+
+let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let rafId: number | null = null;
+const amplitudeListeners = new Set<(db: number) => void>();
+
+function startMetering(stream: MediaStream) {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    audioContext = new AudioCtx();
+    const source = audioContext.createMediaStreamSource(stream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const data = new Float32Array(analyser.fftSize);
+    const tick = () => {
+      if (!analyser) return;
+      analyser.getFloatTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const sample = data[i] ?? 0;
+        sumSquares += sample * sample;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      // Map RMS to ~ -60 dB (quiet) ... -5 dB (loud)
+      const db = rms > 0.0001 ? Math.max(-60, Math.min(-5, 20 * Math.log10(rms))) : -60;
+      for (const cb of amplitudeListeners) {
+        cb(db);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+  } catch {
+    // Metering is non-critical; ignore if Web Audio API fails.
+  }
+}
+
+function cleanupResources() {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+  analyser = null;
+  if (audioContext) {
+    void audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+  if (mediaStream) {
+    for (const track of mediaStream.getTracks()) {
+      track.stop();
+    }
+    mediaStream = null;
+  }
+  mediaRecorder = null;
+  recordedChunks = [];
+}
+
 export const voiceRecorder = {
-  /** Returns false when the mic is unavailable. */
+  /** Returns the file extension ('webm', 'm4a', 'ogg', 'wav') of the last recording. */
+  getFormat(): string {
+    return extensionForMime(activeMimeType);
+  },
+
+  /** Returns the MIME type of the last recording. */
+  getMimeType(): string {
+    return activeMimeType || 'audio/webm';
+  },
+
+  /** Returns false when the mic is unavailable or permission is denied. */
   async start(): Promise<boolean> {
-    return true;
+    await this.cancel();
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia ||
+      typeof MediaRecorder === 'undefined'
+    ) {
+      return false;
+    }
+
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const mimeType = pickMimeType();
+      activeMimeType = mimeType || 'audio/webm';
+      recordedChunks = [];
+
+      mediaRecorder = mimeType
+        ? new MediaRecorder(mediaStream, { mimeType })
+        : new MediaRecorder(mediaStream);
+
+      if (mediaRecorder.mimeType) {
+        activeMimeType = mediaRecorder.mimeType;
+      }
+
+      mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.start(100);
+      startMetering(mediaStream);
+      return true;
+    } catch {
+      cleanupResources();
+      return false;
+    }
   },
 
   async stop(): Promise<Uint8Array | null> {
-    // Non-empty bytes so the preview flow continues.
-    return new Uint8Array([0]);
+    const recorder = mediaRecorder;
+    if (!recorder || recorder.state === 'inactive') {
+      cleanupResources();
+      return null;
+    }
+
+    return new Promise<Uint8Array | null>((resolve) => {
+      recorder.onstop = async () => {
+        try {
+          const blob = new Blob(recordedChunks, { type: activeMimeType });
+          cleanupResources();
+          if (blob.size === 0) {
+            resolve(null);
+            return;
+          }
+          const buffer = await blob.arrayBuffer();
+          resolve(new Uint8Array(buffer));
+        } catch {
+          cleanupResources();
+          resolve(null);
+        }
+      };
+      try {
+        recorder.stop();
+      } catch {
+        cleanupResources();
+        resolve(null);
+      }
+    });
   },
 
-  async cancel(): Promise<void> {},
+  async cancel(): Promise<void> {
+    const recorder = mediaRecorder;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.onstop = null;
+      try {
+        recorder.stop();
+      } catch {
+        // ignore
+      }
+    }
+    cleanupResources();
+  },
 
   /** Subscribe to mic level in dB (~ -60 quiet … -5 loud). Returns unsubscribe. */
-  onAmplitude(_cb: (db: number) => void): () => void {
-    return () => {};
+  onAmplitude(cb: (db: number) => void): () => void {
+    amplitudeListeners.add(cb);
+    return () => {
+      amplitudeListeners.delete(cb);
+    };
   },
 };
