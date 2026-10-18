@@ -100,10 +100,16 @@ watch(
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  background: #ffffff;
+  color: #000000;
 }
 
 .messages-sheet__header {
   margin-bottom: 14px;
+  flex-shrink: 0;
 }
 
 .messages-sheet__title-row {
@@ -115,40 +121,48 @@ watch(
 .messages-sheet__title-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .messages-sheet__icon {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   color: #1b3a9e;
 }
 
 .messages-sheet__title {
-  font-size: 20px;
+  font-size: calc(var(--fs, 20px) * 1.25);
   font-weight: 800;
-  color: var(--ink, #0f172a);
+  color: #000000;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .messages-sheet__close {
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
-  background: var(--glass, rgba(0, 0, 0, 0.05));
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  background: #f1f5f9;
   display: grid;
   place-items: center;
-  color: var(--ink, #0f172a);
+  color: #000000;
+  transition: background 0.15s ease;
+}
+
+.messages-sheet__close:active {
+  background: #e2e8f0;
 }
 
 .messages-sheet__close .i {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
 }
 
 .messages-sheet__subtitle {
-  font-size: 13px;
-  color: var(--muted, #64748b);
-  margin: 4px 0 0;
+  font-size: calc(var(--fs, 20px) * 0.82);
+  line-height: 1.45;
+  color: #374151;
+  margin: 6px 0 0;
 }
+
 </style>

@@ -64,6 +64,11 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #ffffff;
+  color: #000000;
 }
 
 .chat-list__loading {
@@ -73,7 +78,7 @@ const emit = defineEmits<{
   justify-content: center;
   padding: 40px 16px;
   gap: 12px;
-  color: var(--muted, #64748b);
+  color: #4b5563;
   font-size: 15px;
 }
 
@@ -95,7 +100,7 @@ const emit = defineEmits<{
 .chat-list__empty {
   text-align: center;
   padding: 40px 20px;
-  color: var(--muted, #64748b);
+  color: #4b5563;
 }
 
 .chat-list__empty-icon {
@@ -115,33 +120,36 @@ const emit = defineEmits<{
 }
 
 .chat-list__empty h4 {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ink, #0f172a);
-  margin-bottom: 6px;
+  font-size: calc(var(--fs, 20px) * 1.15);
+  font-weight: 800;
+  color: #000000;
+  margin-bottom: 8px;
 }
 
 .chat-list__empty p {
-  font-size: 14px;
+  font-size: calc(var(--fs, 20px) * 0.85);
   line-height: 1.5;
-  max-width: 280px;
+  max-width: 300px;
   margin: 0 auto;
+  color: #374151;
 }
 
 .chat-list__items {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  padding-bottom: 20px;
 }
 
 .chat-item {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: var(--card-bg, #ffffff);
-  border: 1px solid var(--line, #e2e8f0);
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  color: #000000;
   text-align: left;
   transition: background 0.15s ease, transform 0.1s ease;
   width: 100%;
@@ -149,19 +157,19 @@ const emit = defineEmits<{
 
 .chat-item:active {
   transform: scale(0.99);
-  background: rgba(0, 0, 0, 0.03);
+  background: #f8fafc;
 }
 
 .chat-item__avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 28px;
   background: linear-gradient(135deg, #1b3a9e, #3b82f6);
   color: #ffffff;
   display: grid;
   place-items: center;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 800;
   letter-spacing: 0.5px;
   flex-shrink: 0;
 }
@@ -171,7 +179,7 @@ const emit = defineEmits<{
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
 .chat-item__top {
@@ -182,17 +190,18 @@ const emit = defineEmits<{
 }
 
 .chat-item__name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink, #0f172a);
+  font-size: calc(var(--fs, 20px) * 1.05);
+  font-weight: 800;
+  color: #000000;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .chat-item__time {
-  font-size: 12px;
-  color: var(--muted, #64748b);
+  font-size: calc(var(--fs, 20px) * 0.72);
+  color: #4b5563;
+  font-weight: 600;
   flex-shrink: 0;
 }
 
@@ -204,17 +213,19 @@ const emit = defineEmits<{
 }
 
 .chat-item__preview {
-  font-size: 14px;
-  color: var(--muted, #64748b);
+  font-size: calc(var(--fs, 20px) * 0.85);
+  line-height: 1.35;
+  color: #374151;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .chat-item__chevron {
-  width: 14px;
-  height: 14px;
-  color: var(--muted, #94a3b8);
+  width: 18px;
+  height: 18px;
+  color: #64748b;
   flex-shrink: 0;
 }
+
 </style>

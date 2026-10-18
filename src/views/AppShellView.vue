@@ -54,9 +54,11 @@ type ChatItem =
       responded?: boolean;
     };
 
-type SheetMode = null | 'benefits' | 'about' | 'profile' | 'messages';
+type SheetMode = null | 'benefits' | 'about' | 'profile';
 
+const chatTabOpen = ref(false);
 const activeContactForChat = ref<number | null>(null);
+
 
 const router = useRouter();
 const { language, textSizeIndex, setLanguage, setTextSizeIndex } = useSettings();
@@ -177,6 +179,8 @@ onMounted(async () => {
   const handle = await CapApp.addListener('backButton', () => {
     if (listening.value) {
       void cancelMic();
+    } else if (chatTabOpen.value) {
+      closeChatTab();
     } else if (activeSheet.value || menuOpen.value) {
       closeAllOverlays();
     } else if (typingMode.value) {
@@ -187,6 +191,7 @@ onMounted(async () => {
       CapApp.exitApp();
     }
   }).catch(() => null);
+
   removeBackListener = () => handle?.remove();
 });
 
@@ -421,12 +426,13 @@ function respondFriend(item: Extract<ChatItem, { kind: 'card-friend' }>, accept:
   if (item.responded) return;
   item.responded = true;
   if (accept) {
-    openMessagesSheet(2);
+    openChatTab(2);
   } else {
     messages.value.push({ id: nextId++, kind: 'user', text: 'Not now' });
     void scrollToBottom();
   }
 }
+
 
 
 // ---- Keyboard / Typebar --------------------------------------------------
@@ -583,11 +589,18 @@ function openProfileSheet() {
   activeSheet.value = 'profile';
 }
 
-function openMessagesSheet(contactId?: number | null) {
-  menuOpen.value = false;
+function openChatTab(contactId?: number | null) {
+  closeAllOverlays();
+  stopSpeaking();
   activeContactForChat.value = contactId ?? null;
-  activeSheet.value = 'messages';
+  chatTabOpen.value = true;
 }
+
+function closeChatTab() {
+  chatTabOpen.value = false;
+  activeContactForChat.value = null;
+}
+
 
 
 function askMeetFriends() {
@@ -602,9 +615,11 @@ function selectBenefitFromSheet(title: string) {
 
 function resetToHome() {
   closeAllOverlays();
+  closeChatTab();
   stopSpeaking();
   messages.value = [];
 }
+
 
 async function handleLogout() {
   closeAllOverlays();
@@ -840,6 +855,7 @@ async function handleLogout() {
             Menu
           </button>
         </nav>
+
       </div>
 
       <!-- Scrim Backdrop -->
@@ -901,10 +917,11 @@ async function handleLogout() {
           <svg class="i"><use href="#award" /></svg>
           View all benefits
         </button>
-        <button class="it" type="button" @click="openMessagesSheet(null)">
+        <button class="it" type="button" @click="openChatTab(null)">
           <svg class="i"><use href="#message" /></svg>
           My messages & friends
         </button>
+
 
         <button class="it" type="button" @click="openAboutSheet">
           <svg class="i"><use href="#heart" /></svg>
@@ -1012,17 +1029,7 @@ async function handleLogout() {
         </template>
 
 
-        <!-- Sheet 4: Messages & Community -->
-        <template v-else-if="activeSheet === 'messages'">
-          <MessagesSheet
-            :current-user-id="profile?.id ?? 1"
-            :initial-contact-id="activeContactForChat"
-            @close="closeAllOverlays"
-          />
-        </template>
-
         <button
-          v-if="activeSheet !== 'messages'"
           class="btn"
           type="button"
           style="width: 100%"
@@ -1031,6 +1038,16 @@ async function handleLogout() {
           Close
         </button>
       </aside>
+
+      <!-- Fullscreen Chat Tab (Full screen by default) -->
+      <section v-if="chatTabOpen" class="fullscreen-chat fade-in" aria-label="Messages">
+        <MessagesSheet
+          :current-user-id="profile?.id ?? 1"
+          :initial-contact-id="activeContactForChat"
+          @close="closeChatTab"
+        />
+      </section>
+
 
 
       <!-- Fullscreen Listening Orb Overlay -->
@@ -1115,13 +1132,14 @@ async function handleLogout() {
   height: 36px;
   padding: 0 12px;
   border-radius: 18px;
-  background: var(--glass);
+  background: #ffffff;
+  color: #000000;
   border: 1px solid var(--line);
   font-size: 14px;
   font-weight: 600;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
+
 
 .chip .i {
   width: 16px;
@@ -1179,8 +1197,9 @@ h1 {
   min-height: 70px;
   padding: 12px 16px;
   border-radius: 22px;
-  background: var(--solid);
-  border: 0;
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid var(--line);
   font-size: var(--fs);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -1198,7 +1217,7 @@ h1 {
 
 .sugg .go {
   margin-left: auto;
-  color: var(--muted);
+  color: #4b5563;
   width: 22px;
   height: 22px;
 }
@@ -1221,12 +1240,13 @@ h1 {
 
 .msg.agent {
   align-self: flex-start;
-  background: var(--glass);
-  border: 1px solid var(--line);
+  background: #ffffff;
+  color: #000000;
+  border: 1.5px solid var(--line);
   border-bottom-left-radius: 8px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
+
 
 .msg :deep(ul) {
   margin: 6px 0 0 22px;
@@ -1294,15 +1314,15 @@ h1 {
 
 .card {
   align-self: stretch;
-  background: var(--glass);
+  background: #ffffff;
+  color: #000000;
   border: 1px solid var(--line);
   border-radius: 26px;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .card .head {
@@ -1310,7 +1330,7 @@ h1 {
   align-items: center;
   gap: 8px;
   padding: 8px 10px 0;
-  color: var(--muted);
+  color: #4b5563;
   font-size: calc(var(--fs) * 0.78);
   font-weight: 600;
 }
@@ -1321,7 +1341,8 @@ h1 {
 }
 
 .card .body {
-  background: var(--solid);
+  background: #ffffff;
+  color: #000000;
   border: 1px solid var(--line);
   border-radius: 20px;
   overflow: hidden;
@@ -1337,22 +1358,25 @@ h1 {
   padding: 12px 16px;
   font-size: var(--fs);
   line-height: 1.3;
+  color: #000000;
 }
 
 .place b {
   display: block;
   font-weight: 700;
+  color: #000000;
 }
 
 .place span {
-  color: var(--muted);
+  color: #4b5563;
   font-size: calc(var(--fs) * 0.82);
 }
 
 .btn {
   min-height: 56px;
   border-radius: 20px;
-  background: var(--glass);
+  background: #f8fafc;
+  color: #000000;
   font-weight: 700;
   font-size: calc(var(--fs) * 0.85);
   display: flex;
@@ -1385,11 +1409,19 @@ h1 {
   width: 100%;
   text-align: left;
   font-weight: 500;
+  color: #000000;
+}
+
+.li small {
+  display: block;
+  color: #4b5563;
+  font-size: 13px;
 }
 
 .li:first-child {
   border-top: 0;
 }
+
 
 .li small {
   display: block;
@@ -1467,11 +1499,9 @@ h1 {
   justify-content: space-between;
   padding: 12px 22px 10px;
   border-radius: 44px;
-  background: var(--glass);
-  border: 1px solid var(--line);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  background: #ffffff;
+  border: 1.5px solid var(--line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
 }
 
 .db {
@@ -1481,7 +1511,7 @@ h1 {
   gap: 5px;
   font-weight: 600;
   font-size: 14px;
-  color: var(--muted);
+  color: #4b5563;
   width: 76px;
 }
 
@@ -1491,9 +1521,9 @@ h1 {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--solid);
+  background: #ffffff;
   border: 1px solid var(--line);
-  color: var(--ink);
+  color: #000000;
   transition: transform 0.12s;
 }
 
@@ -1502,7 +1532,7 @@ h1 {
 }
 
 .db.m {
-  color: var(--ink);
+  color: #000000;
   font-size: 15px;
   width: 96px;
 }
@@ -1523,21 +1553,20 @@ h1 {
 }
 
 .db.on .circle {
-  border-color: var(--a2);
-  color: var(--a2);
+  border-color: #1b3a9e;
+  color: #1b3a9e;
+  background: #eff6ff;
 }
 
 .typebar {
   display: none;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 22px;
+  padding: 6px 6px 6px 20px;
   border-radius: 40px;
-  background: var(--glass);
-  border: 1px solid var(--a2);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  background: #ffffff;
+  border: 2px solid #1b3a9e;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.14);
 }
 
 .typebar.on {
@@ -1555,10 +1584,11 @@ h1 {
   background: none;
   font: inherit;
   font-size: var(--fs);
-  color: var(--ink);
-  height: 64px;
+  color: #000000;
+  height: 60px;
   outline: none;
 }
+
 
 .typebar input::placeholder {
   color: var(--muted);
@@ -1607,12 +1637,14 @@ h1 {
   bottom: 128px;
   width: 318px;
   z-index: 9;
-  background: var(--solid);
+  background: #ffffff;
+  color: #000000;
   border: 1px solid var(--line);
   border-radius: 28px;
   padding: 14px;
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35);
   transform-origin: bottom right;
+
   transform: scale(0.88) translateY(12px);
   opacity: 0;
   pointer-events: none;
@@ -1681,7 +1713,9 @@ h1 {
   font-size: 17px;
   font-weight: 600;
   text-align: left;
+  color: #000000;
 }
+
 
 .pop .it:hover,
 .pop .it:active {
@@ -1776,6 +1810,22 @@ h1 {
   width: 100%;
 }
 
+/* Fullscreen Chat Tab (full screen by default) */
+.fullscreen-chat {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 25;
+  background: #ffffff;
+  color: #000000;
+  display: flex;
+  flex-direction: column;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
 /* Bottom Sheet */
 .sheet {
   position: absolute;
@@ -1783,7 +1833,8 @@ h1 {
   right: 0;
   bottom: 0;
   z-index: 8;
-  background: var(--bg);
+  background: #ffffff;
+  color: #000000;
   border: 1px solid var(--line);
   border-radius: 32px 32px 0 0;
   padding: 12px 16px calc(18px + env(safe-area-inset-bottom, 0px));
@@ -1792,6 +1843,7 @@ h1 {
   max-height: 88%;
   overflow-y: auto;
 }
+
 
 .sheet.on {
   transform: none;
@@ -1810,15 +1862,18 @@ h1 {
   font-weight: 800;
   letter-spacing: -0.02em;
   margin: 0 4px 12px;
+  color: #000000;
 }
 
 .group {
-  background: var(--solid);
+  background: #ffffff;
+  color: #000000;
   border: 1px solid var(--line);
   border-radius: 24px;
   overflow: hidden;
   margin-bottom: 12px;
 }
+
 
 .group .li:active {
   background: var(--hi);

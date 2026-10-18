@@ -18,6 +18,18 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Ensure font color is black whenever background is white */
+.bg-white,
+[style*="background: #fff"],
+[style*="background:#fff"],
+[style*="background: #ffffff"],
+[style*="background:#ffffff"],
+[style*="background: white"],
+[style*="background:white"] {
+  color: #000000;
+}
+
+
 button {
   font: inherit;
   color: inherit;

@@ -47,7 +47,6 @@ async function loadMessages() {
 }
 
 function handleIncomingMessage(msg: Message) {
-  // Prevent duplicate if already added
   if (!messages.value.some((m) => m.id === msg.id)) {
     messages.value.push(msg);
     void scrollToBottom();
@@ -66,8 +65,7 @@ async function sendMessage() {
       messages.value.push(sent);
     }
     await scrollToBottom();
-  } catch (err) {
-    // Restore text if failed
+  } catch {
     draftText.value = text;
   } finally {
     sending.value = false;
@@ -81,7 +79,6 @@ function playTts(text: string) {
 // Voice dictation using voiceRecorder + ElevenLabs STT
 async function toggleRecording() {
   if (recording.value) {
-    // Stop and transcribe
     recording.value = false;
     transcribing.value = true;
     try {
@@ -100,7 +97,6 @@ async function toggleRecording() {
       transcribing.value = false;
     }
   } else {
-    // Start recording
     const ok = await voiceRecorder.start();
     if (ok) {
       recording.value = true;
@@ -250,44 +246,55 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-height: 75vh;
+  flex: 1;
+  min-height: 0;
   position: relative;
+  background: #ffffff;
+  color: #000000;
 }
 
 .thread-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 4px 12px;
-  border-bottom: 1px solid var(--line, #e2e8f0);
+  padding: 10px 4px 12px;
+  border-bottom: 1.5px solid #e2e8f0;
+  background: #ffffff;
+  color: #000000;
   flex-shrink: 0;
 }
 
 .thread-header__back {
-  width: 40px;
-  height: 40px;
-  border-radius: 20px;
-  background: var(--glass, rgba(0, 0, 0, 0.04));
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background: #f1f5f9;
   display: grid;
   place-items: center;
-  color: var(--ink, #0f172a);
+  color: #000000;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.thread-header__back:active {
+  background: #e2e8f0;
 }
 
 .thread-header__back .i {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 
 .thread-header__avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
   background: linear-gradient(135deg, #1b3a9e, #3b82f6);
-  color: #fff;
+  color: #ffffff;
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: 800;
+  font-size: calc(var(--fs, 20px) * 0.9);
   flex-shrink: 0;
 }
 
@@ -297,9 +304,9 @@ watch(
 }
 
 .thread-header__name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink, #0f172a);
+  font-size: calc(var(--fs, 20px) * 1.15);
+  font-weight: 800;
+  color: #000000;
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -307,37 +314,40 @@ watch(
 }
 
 .thread-header__sub {
-  font-size: 12px;
-  color: var(--muted, #64748b);
+  font-size: calc(var(--fs, 20px) * 0.75);
+  font-weight: 600;
+  color: #4b5563;
   display: block;
 }
 
 .thread-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px 4px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 220px;
+  gap: 14px;
+  background: #ffffff;
 }
 
 .thread-messages__loading,
 .thread-messages__empty {
   text-align: center;
-  color: var(--muted, #64748b);
+  color: #4b5563;
   padding: 40px 16px;
-  font-size: 14px;
+  font-size: calc(var(--fs, 20px) * 0.85);
+  line-height: 1.5;
 }
 
 .thread-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid rgba(0, 0, 0, 0.1);
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
   border-top-color: #1b3a9e;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-  margin: 0 auto 10px;
+  margin: 0 auto 12px;
 }
 
 @keyframes spin {
@@ -357,13 +367,13 @@ watch(
 }
 
 .msg-bubble {
-  max-width: 82%;
-  padding: 10px 14px;
-  border-radius: 18px;
-  background: var(--card-bg, #ffffff);
-  border: 1px solid var(--line, #e2e8f0);
-  color: var(--ink, #0f172a);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  max-width: 85%;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  color: #000000;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .msg-bubble--me {
@@ -378,60 +388,73 @@ watch(
 }
 
 .msg-bubble__text {
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: calc(var(--fs, 20px) * 1.05);
+  line-height: 1.5;
   margin: 0;
   word-break: break-word;
+  color: #000000;
+}
+
+.msg-bubble--me .msg-bubble__text {
+  color: #ffffff;
 }
 
 .msg-bubble__footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 12px;
+  margin-top: 8px;
 }
 
 .msg-bubble__time {
-  font-size: 11px;
-  opacity: 0.75;
+  font-size: calc(var(--fs, 20px) * 0.72);
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.msg-bubble--me .msg-bubble__time {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .msg-bubble__tts {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(27, 58, 158, 0.08);
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  background: #eff6ff;
   color: #1b3a9e;
-  font-size: 11px;
-  font-weight: 600;
-  border: none;
+  font-size: calc(var(--fs, 20px) * 0.75);
+  font-weight: 700;
+  border: 1.5px solid #bfdbfe;
+  cursor: pointer;
+  min-height: 32px;
 }
 
 .msg-bubble__tts .i {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
 }
 
 .voice-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: rgba(27, 58, 158, 0.1);
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #eff6ff;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 14px;
+  font-size: calc(var(--fs, 20px) * 0.85);
+  font-weight: 700;
   color: #1b3a9e;
   margin-bottom: 8px;
 }
 
 .voice-banner__indicator {
-  width: 10px;
-  height: 10px;
-  border-radius: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
   background: #ef4444;
 }
 
@@ -452,43 +475,49 @@ watch(
 
 .voice-banner__done {
   margin-left: auto;
-  padding: 4px 10px;
-  border-radius: 8px;
+  padding: 8px 16px;
+  border-radius: 12px;
   background: #1b3a9e;
-  color: #fff;
-  font-size: 12px;
+  color: #ffffff;
+  font-size: calc(var(--fs, 20px) * 0.8);
   font-weight: 700;
 }
 
 .thread-composer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line, #e2e8f0);
+  gap: 10px;
+  padding: 12px 0 6px;
+  border-top: 1.5px solid #e2e8f0;
+  background: #ffffff;
   flex-shrink: 0;
 }
 
 .composer-input {
   flex: 1;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 22px;
-  border: 1px solid var(--line, #e2e8f0);
-  background: var(--card-bg, #ffffff);
-  color: var(--ink, #0f172a);
-  font-size: 15px;
+  height: 56px;
+  padding: 0 18px;
+  border-radius: 28px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #000000;
+  font-size: calc(var(--fs, 20px) * 0.95);
   outline: none;
+}
+
+.composer-input::placeholder {
+  color: #6b7280;
 }
 
 .composer-input:focus {
   border-color: #1b3a9e;
+  box-shadow: 0 0 0 2px rgba(27, 58, 158, 0.15);
 }
 
 .composer-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 22px;
+  width: 56px;
+  height: 56px;
+  border-radius: 28px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -500,13 +529,15 @@ watch(
 }
 
 .composer-btn--mic {
-  background: var(--glass, rgba(0, 0, 0, 0.05));
-  color: var(--ink, #0f172a);
+  background: #f1f5f9;
+  color: #000000;
+  border: 1.5px solid #cbd5e1;
 }
 
 .composer-btn--mic.composer-btn--active {
   background: #ef4444;
   color: #ffffff;
+  border-color: #ef4444;
 }
 
 .composer-btn--send {
@@ -515,11 +546,11 @@ watch(
 }
 
 .composer-btn--send:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
 .composer-btn .i {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
 }
 </style>
