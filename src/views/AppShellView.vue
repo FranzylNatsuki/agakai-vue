@@ -146,9 +146,14 @@ function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
   return result;
 }
 
+let unsubscribeNotes: (() => void) | null = null;
+
 onMounted(async () => {
   unsubscribeSpeaking = ttsPlayer.onSpeakingChange((val) => {
     speaking.value = val;
+  });
+  unsubscribeNotes = profileService.onNotesChange((notes) => {
+    userNotes.value = notes;
   });
   profile.value = await profileService.loadProfileOrNull();
   benefits.value = await benefitService.loadRelevantBenefits(profile.value?.address);
@@ -178,6 +183,7 @@ onBeforeUnmount(() => {
   removeBackListener?.();
   unsubscribeAmp?.();
   unsubscribeSpeaking?.();
+  unsubscribeNotes?.();
   if (toastTimer) clearTimeout(toastTimer);
   void voiceRecorder.cancel();
   stopSpeaking();
@@ -498,6 +504,11 @@ async function openAboutSheet() {
   menuOpen.value = false;
   activeSheet.value = 'about';
   userNotes.value = await profileService.loadUserNotes();
+}
+
+async function clearMemory() {
+  await profileService.saveUserNotes('');
+  showToast('Memory cleared');
 }
 
 function openProfileSheet() {
@@ -869,7 +880,17 @@ async function handleLogout() {
 
         <!-- Sheet 2: What I know about you -->
         <template v-else-if="activeSheet === 'about'">
-          <h3>What I know about you</h3>
+          <div class="sheet__head">
+            <h3>What I know about you</h3>
+            <button
+              v-if="userNotes && userNotes.trim()"
+              class="sheet__clear"
+              type="button"
+              @click="clearMemory"
+            >
+              Reset memory
+            </button>
+          </div>
           <div class="group">
             <div class="li">
               <svg class="i"><use href="#user" /></svg>
@@ -880,8 +901,16 @@ async function handleLogout() {
               <span class="tag">LGU</span>
             </div>
           </div>
-          <div v-if="userNotes" class="sheet__notes">
+          <div v-if="userNotes && userNotes.trim()" class="sheet__notes">
             <MarkdownContent :source="userNotes" variant="notes" />
+          </div>
+          <div v-else class="sheet__empty">
+            <svg class="i"><use href="#heart" /></svg>
+            <p>
+              <b>No memory saved yet.</b><br />
+              Start talking or typing to AgakAI — I will automatically remember your questions,
+              interests, and concerns here.
+            </p>
           </div>
         </template>
 
@@ -1711,12 +1740,63 @@ h1 {
   background: var(--hi);
 }
 
+.sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sheet__head h3 {
+  margin: 0 4px;
+}
+
+.sheet__clear {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: calc(var(--fs) * 0.78);
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sheet__clear:active {
+  background: var(--hi);
+  color: var(--ink);
+}
+
 .sheet__notes {
   background: var(--solid);
   border: 1px solid var(--line);
   border-radius: 24px;
   padding: 14px 18px;
   margin-bottom: 12px;
+}
+
+.sheet__empty {
+  background: var(--solid);
+  border: 1px dashed var(--line);
+  border-radius: 24px;
+  padding: 18px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.sheet__empty-title {
+  font-size: calc(var(--fs) * 0.98);
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+
+.sheet__empty-sub {
+  font-size: calc(var(--fs) * 0.85);
+  line-height: 1.4;
+  color: var(--muted);
+  margin: 0;
 }
 
 .toast {

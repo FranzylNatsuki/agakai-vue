@@ -1,6 +1,7 @@
 import { appConfig, isAiConfigured } from '@/services/appConfig';
 import { benefitService } from '@/services/benefitService';
 import { profileService } from '@/services/profileService';
+import { prefetchSentenceTts, splitIntoSpeechChunks } from '@/services/ttsPlayer';
 import { useSettings, type AppLanguage } from '@/composables/useSettings';
 import { mockAnswer } from '@/data/mock';
 
@@ -37,51 +38,6 @@ function uint8ToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
-}
-
-function base64ToUint8(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-/**
- * Wraps raw 16-bit mono PCM bytes (returned by Gemini TTS at 24kHz) in a RIFF WAV header.
- */
-function pcm16ToWav(pcmBytes: Uint8Array, sampleRate = 24000, numChannels = 1): Uint8Array {
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const dataSize = pcmBytes.byteLength;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-
-  const writeStr = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
-  };
-
-  writeStr(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeStr(8, 'WAVE');
-  writeStr(12, 'fmt ');
-  view.setUint32(16, 16, true); // PCM chunk size
-  view.setUint16(20, 1, true); // PCM format = 1
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  writeStr(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  const wavBytes = new Uint8Array(buffer);
-  wavBytes.set(pcmBytes, 44);
-  return wavBytes;
 }
 
 function normalizeAudioMime(format?: string, mimeType?: string): { mime: string; ext: string } {
@@ -214,88 +170,25 @@ function buildSystemInstruction(
     'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
     langInstruction,
     'Formatting & tone guidelines:',
-    '- Keep answers concise (2 to 4 short sentences or a brief bulleted list) so it is easy for an elderly person to read and listen to.',
-    '- Use short numbered steps or bullet points when explaining procedures (like claiming Social Pension, applying for a Senior ID, or getting medical check-ups).',
+    '- Keep answers concise (2 to 3 short sentences or a brief bulleted list) so it is quick to speak aloud and easy for an elderly person to follow.',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
     user ? `\nSenior Citizen Profile:\n${JSON.stringify(user, null, 2)}` : '',
     benefitsList ? `\nAvailable OSCA / LGU Benefits:\n${benefitsList}` : '',
-    userNotes ? `\nSupport Notes about this Senior:\n${userNotes}` : '',
+    userNotes && userNotes.trim()
+      ? `\nSupport Notes / Memory about this Senior:\n${userNotes}`
+      : '\nSupport Notes / Memory about this Senior: (No prior memory yet — this is a new conversation.)',
   ]
     .filter(Boolean)
     .join('\n');
 }
 
 /**
- * Generates TTS audio bytes via Gemini TTS (`gemini-2.5-flash-preview-tts`).
- * Returns null if unavailable so `ttsPlayer` can fall back to browser Web Speech API.
- */
-export async function synthesizeGeminiTts(text: string): Promise<Uint8Array | null> {
-  if (!appConfig.geminiApiKey || !text.trim()) return null;
-
-  const cleanText = text
-    .replace(/[*_#>`~]/g, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .trim();
-  if (!cleanText) return null;
-
-  try {
-    const url = `${GEMINI_BASE_URL}/${appConfig.geminiTtsModel}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: cleanText }],
-          },
-        ],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: 'Kore',
-              },
-            },
-          },
-        },
-      }),
-    });
-
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
-            inlineData?: { mimeType?: string; data?: string };
-          }>;
-        };
-      }>;
-    };
-
-    const inline = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-    if (!inline?.data) return null;
-
-    const rawBytes = base64ToUint8(inline.data);
-    const mime = (inline.mimeType ?? '').toLowerCase();
-    if (mime.includes('pcm') || mime.includes('l16')) {
-      return pcm16ToWav(rawBytes, 24000, 1);
-    }
-    return rawBytes;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Updates rolling support notes (`user_notes`) in the background after an exchange.
+ * Updates rolling support notes (`user_notes`) in Supabase via Gemini after each exchange.
  */
 async function updateRollingUserNotes(question: string, answer: string): Promise<void> {
   if (!appConfig.geminiApiKey) return;
   try {
-    const existing = (await profileService.loadUserNotes()) ?? '';
+    const existing = ((await profileService.loadUserNotes()) ?? '').trim();
     for (const model of candidateModels()) {
       const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
       const res = await fetch(url, {
@@ -307,7 +200,21 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
               role: 'user',
               parts: [
                 {
-                  text: `Update the concise markdown support notes for this senior citizen based on their latest conversation.\n\nExisting notes:\n${existing || '(none)'}\n\nLatest Question: ${question}\nLatest Answer: ${answer}\n\nKeep the sections **Likes** and **Concerns** (or **Recent Topics**), in short bullet points. Output ONLY the markdown notes.`,
+                  text: [
+                    'You maintain the rolling memory notes (`user_notes`) about a Filipino senior citizen for AgakAI.',
+                    `Existing memory notes:\n${existing || '(Empty — no memory recorded yet)'}`,
+                    `\nNew message from Senior: "${question}"`,
+                    `AgakAI response: "${answer}"`,
+                    '\nUpdate the markdown notes to remember what matters about this senior (their interests/likes, health or benefit needs, questions they asked about, and personal details they shared).',
+                    'Format strictly as concise markdown with two headings:',
+                    '**Likes & Interests**',
+                    '- (bullet points, or "None shared yet" if none)',
+                    '',
+                    '**Concerns & Recent Topics**',
+                    '- (bullet points summarizing what they asked about or need help with)',
+                    '',
+                    'Output ONLY the markdown text, no code fences or extra commentary.',
+                  ].join('\n'),
                 },
               ],
             },
@@ -333,14 +240,13 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
 }
 
 /**
- * Streaming chat client powered by Groq Whisper STT + Google Gemini API + Gemini/WebSpeech TTS.
+ * Streaming chat client powered by Groq Whisper STT + Google Gemini API + Pipelined TTS.
  */
 export const agakApi = {
   async *chatStream(req: ChatRequest): AsyncGenerator<AgakEvent> {
     const { language } = useSettings();
     const currentLang = language.value;
 
-    // Fallback to mock stream only when Gemini API key is not configured yet
     if (!isAiConfigured()) {
       if (!appConfig.useMockData) {
         yield {
@@ -391,7 +297,7 @@ export const agakApi = {
         return;
       }
 
-      // 2. Gather context (benefits + support notes)
+      // 2. Gather context (benefits + support notes from Supabase)
       const userAddress = typeof req.user?.address === 'string' ? req.user.address : null;
       const [benefits, userNotes] = await Promise.all([
         benefitService.loadRelevantBenefits(userAddress),
@@ -431,7 +337,7 @@ export const agakApi = {
             ],
             generationConfig: {
               temperature: 0.5,
-              maxOutputTokens: 1024,
+              maxOutputTokens: 700,
             },
           }),
         });
@@ -463,6 +369,7 @@ export const agakApi = {
       const decoder = new TextDecoder();
       let sseBuffer = '';
       let fullAnswer = '';
+      let prefetchedFirstChunk = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -489,6 +396,16 @@ export const agakApi = {
               if (part.text) {
                 fullAnswer += part.text;
                 yield { type: 'delta', text: part.text };
+
+                // As soon as the first sentence is complete, start synthesizing its TTS
+                // in the background while Gemini is still streaming the rest of the text!
+                if (!prefetchedFirstChunk) {
+                  const chunks = splitIntoSpeechChunks(fullAnswer);
+                  if (chunks.length >= 2 && chunks[0]) {
+                    prefetchedFirstChunk = true;
+                    void prefetchSentenceTts(chunks[0]);
+                  }
+                }
               }
             }
           } catch {
@@ -505,15 +422,10 @@ export const agakApi = {
         return;
       }
 
-      // 4. Synthesize TTS audio (Gemini TTS if available; otherwise ttsPlayer uses Web Speech API)
-      const ttsAudio = await synthesizeGeminiTts(fullAnswer);
-      if (ttsAudio && ttsAudio.byteLength > 0) {
-        yield { type: 'audio', chunk: ttsAudio };
-      }
-
-      // 5. Update rolling user notes in the background
+      // 4. Update rolling user_notes in Supabase in the background
       void updateRollingUserNotes(questionText, fullAnswer);
 
+      // 5. Yield done immediately (0ms wait — ttsPlayer pipelines sentence audio!)
       yield { type: 'done', answer: fullAnswer };
     } catch (err) {
       yield {
