@@ -122,6 +122,18 @@ function cleanupResources() {
 }
 
 export const voiceRecorder = {
+  /** Ask for microphone access without recording or retaining any audio. */
+  async requestPermission(): Promise<boolean> {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return false;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   /** Returns the file extension ('webm', 'm4a', 'ogg', 'wav') of the last recording. */
   getFormat(): string {
     return extensionForMime(activeMimeType);

@@ -1,27 +1,40 @@
 import { appConfig } from '@/services/appConfig';
+import { getSupabase } from '@/services/supabase';
 import type { AppLanguage } from '@/composables/useSettings';
 
-export const speechLanguage = (language?: AppLanguage): string =>
+export async function getVoiceAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session }, error } = await getSupabase().auth.getSession();
+  if (error || !session) throw new Error('Sign in to use voice assistance.');
+  return {
+    apikey: appConfig.supabasePublishableKey,
+    Authorization: `Bearer ${session.access_token}`,
+  };
+}
+
+export const onboardingSpeechLanguage = (language: AppLanguage): string =>
   language === 'bisaya' ? 'ceb' : language === 'tagalog' ? 'fil' : 'en';
 
 export async function transcribeElevenLabs(
-  bytes: Uint8Array, mime: string, extension: string, language: AppLanguage,
+  bytes: Uint8Array, mime: string, extension: string,
 ): Promise<string> {
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(bytes).buffer], { type: mime }), `recording.${extension}`);
-  form.append('language', speechLanguage(language));
-  const response = await fetch(`${appConfig.elevenLabsProxyUrl}/stt`, {
-    method: 'POST', body: form, credentials: 'same-origin', signal: AbortSignal.timeout(65_000),
+  const headers = await getVoiceAuthHeaders();
+  const response = await fetch(`${appConfig.elevenLabsFunctionUrl}/stt`, {
+    method: 'POST', body: form, headers, signal: AbortSignal.timeout(65_000),
   });
   if (!response.ok) throw new Error(`ElevenLabs STT unavailable (${response.status})`);
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('The Agak voice service returned an unexpected response.');
+  }
   const result = await response.json();
   if (typeof result.text !== 'string') throw new Error('Invalid ElevenLabs transcript');
   return result.text.trim();
 }
 
-/** Streams signed 16-bit little-endian mono PCM at the gateway's fixed 24 kHz. */
+/** Plays the Supabase-proxied ElevenLabs PCM stream (mono, 24 kHz). */
 export async function playElevenLabsSpeech(
-  text: string, language: AppLanguage | undefined, signal: AbortSignal, onStart: () => void,
+  text: string, signal: AbortSignal, onStart: () => void, language?: AppLanguage,
 ): Promise<void> {
   const context = new AudioContext({ sampleRate: 24000 });
   const sources = new Set<AudioBufferSourceNode>();
@@ -43,13 +56,16 @@ export async function playElevenLabsSpeech(
     void context.resume().catch(() => {});
     for (let i = 0; context.state === 'suspended' && i < 20; i++) await wait(50);
     if (context.state !== 'running') throw new Error('Audio playback requires a user gesture');
-    const response = await fetch(`${appConfig.elevenLabsProxyUrl}/tts`, {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, language: speechLanguage(language) }), signal,
+    const headers = await getVoiceAuthHeaders();
+    const response = await fetch(`${appConfig.elevenLabsFunctionUrl}/tts`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        ...(language ? { language: onboardingSpeechLanguage(language) } : {}),
+      }), signal,
     });
     if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('audio/pcm')) {
-      throw new Error(`ElevenLabs TTS unavailable (${response.status})`);
+      throw new Error('The Agak voice service returned an unexpected response.');
     }
     reader = response.body.getReader();
     let pendingByte: number | undefined;

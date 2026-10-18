@@ -53,10 +53,10 @@ type ChatItem =
       responded?: boolean;
     };
 
-type SheetMode = null | 'benefits' | 'about' | 'profile';
+type SheetMode = null | 'benefits' | 'about' | 'profile' | 'mic';
 
 const router = useRouter();
-const { language, textSizeIndex, setLanguage, setTextSizeIndex } = useSettings();
+const { language, textSizeIndex, setLanguage, setTextSizeIndex, t } = useSettings();
 
 const profile = ref<Profile | null>(null);
 const benefits = ref<Benefit[]>([]);
@@ -76,8 +76,10 @@ const speaking = ref(false);
 const listening = ref(false);
 const soundDb = ref(-60);
 const heardText = ref('');
+const heardPartialText = ref('');
 const menuOpen = ref(false);
 const activeSheet = ref<SheetMode>(null);
+const micBlocked = ref(false);
 const toastMessage = ref('');
 const toastVisible = ref(false);
 
@@ -99,7 +101,7 @@ const orbScale = computed(() => {
 
 /** Honorific + first name (e.g. "Lola Maria" or "Lolo Miguel"). */
 const displayGreetingName = computed(() => {
-  if (!profile.value) return 'Lola Maria.';
+  if (!profile.value) return t('default_senior_name');
   const honorific = profile.value.gender?.toLowerCase() === 'female' ? 'Lola' : 'Lolo';
   return `${honorific} ${firstName(profile.value)}.`;
 });
@@ -116,10 +118,10 @@ const lguBadge = computed(() => {
 const mappedBenefits = computed(() => {
   if (benefits.value.length === 0) {
     return [
-      { icon: 'cross', title: 'Free medical check-up', subtitle: 'City Health Center', tag: 'Active' },
-      { icon: 'heart', title: 'Senior Discount (20%)', subtitle: 'Groceries, medicine & meals', tag: 'Active' },
-      { icon: 'award', title: 'Social Pension ₱1,000', subtitle: 'National / All LGUs', tag: 'Active' },
-      { icon: 'pin', title: 'Free Transport Fare', subtitle: 'Selected routes with Senior ID', tag: 'Active' },
+      { icon: 'cross', title: t('demo_medical'), subtitle: t('demo_health_center'), tag: t('active') },
+      { icon: 'heart', title: t('demo_discount'), subtitle: t('demo_discount_detail'), tag: t('active') },
+      { icon: 'award', title: t('demo_pension'), subtitle: t('demo_national'), tag: t('active') },
+      { icon: 'pin', title: t('demo_transport'), subtitle: t('demo_routes'), tag: t('active') },
     ];
   }
   return benefits.value.map((b) => {
@@ -136,7 +138,7 @@ const mappedBenefits = computed(() => {
       icon,
       title: b.title,
       subtitle: b.dateAndLocation || b.lgu,
-      tag: 'Active',
+      tag: t('active'),
     };
   });
 });
@@ -166,6 +168,7 @@ onMounted(async () => {
   const memory = await profileService.loadMemory();
   userSummary.value = memory.summary;
   userNotes.value = memory.notes;
+
 });
 
 // Android hardware back button handling
@@ -220,8 +223,8 @@ async function scrollToBottom() {
 
 function speak(text?: string, audioBytes?: Uint8Array) {
   if (!text && (!audioBytes || audioBytes.byteLength === 0)) return;
-  void ttsPlayer.play(audioBytes ?? null, text, language.value).catch(() => {
-    showToast('Voice unavailable — you can read the answer on screen');
+  void ttsPlayer.play(audioBytes ?? null, text).catch(() => {
+    showToast(t('voice_unavailable')); 
   });
 }
 
@@ -249,7 +252,7 @@ function appendSupplementalCard(
       id: nextId++,
       kind: 'card-treatment',
       placeName: 'City Health Center',
-      placeMeta: `${profile.value?.address || 'Lapu-Lapu City'} · Open today`,
+      placeMeta: `${profile.value?.address || t('default_city')} · ${t('open_today')}`,
       say: answerText,
       audioBytes,
     });
@@ -294,7 +297,7 @@ async function runConversation(req: {
   messages.value.push({
     id: thinkId,
     kind: 'think',
-    label: req.audioBytes ? 'Transcribing your voice…' : undefined,
+    label: req.audioBytes ? t('transcribing') : undefined,
   });
   await scrollToBottom();
 
@@ -388,8 +391,8 @@ async function runConversation(req: {
         messages.value.push({
           id: nextId++,
           kind: 'agent',
-          markdown: `**Pasensya na Lola/Lolo:** ${event.message}`,
-          say: event.message,
+          markdown: `**${t('apology_prefix')}:** ${t('chat_error')}`,
+          say: t('chat_error'),
         });
         await scrollToBottom();
         speak(event.message);
@@ -398,11 +401,11 @@ async function runConversation(req: {
   } catch (err) {
     if (gen !== chatGen) return;
     removeItem(thinkId);
-    const errMsg = (err as Error).message || 'Network error. Please try again.';
+    const errMsg = t('chat_error');
     messages.value.push({
       id: nextId++,
       kind: 'agent',
-      markdown: `**Pasensya na:** ${errMsg}`,
+      markdown: `**${t('apology_prefix')}:** ${errMsg}`,
       say: errMsg,
     });
     await scrollToBottom();
@@ -442,14 +445,72 @@ function submitTypebar() {
   void ask(v);
 }
 
+// ---- Microphone permission onboarding ------------------------------------
+
+const MIC_PRIMER_KEY = 'agakai_mic_primer_seen';
+
+function micPrimerSeen(): boolean {
+  return typeof localStorage !== 'undefined' && localStorage.getItem(MIC_PRIMER_KEY) === '1';
+}
+
+function markMicPrimerSeen(): void {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(MIC_PRIMER_KEY, '1');
+}
+
+async function micPermissionState(): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> {
+  try {
+    const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+    return status.state as 'granted' | 'denied' | 'prompt';
+  } catch {
+    return 'unknown';
+  }
+}
+
+const micCopy = computed(() => ({
+  title: t(micBlocked.value ? 'mic_blocked_title' : 'mic_title'),
+  body: t(micBlocked.value ? 'mic_blocked_body' : 'mic_body'),
+  allow: t(micBlocked.value ? 'try_again' : 'allow_microphone'),
+  type: t('type_instead'),
+}));
+
+async function enableMic() {
+  markMicPrimerSeen();
+  micBlocked.value = false;
+  activeSheet.value = null;
+  await beginListening();
+}
+
+function useTypingInstead() {
+  markMicPrimerSeen();
+  activeSheet.value = null;
+  void setTyping(true);
+}
+
 // ---- Microphone / Fullscreen Listening Overlay ---------------------------
 
 async function startMic() {
   stopSpeaking();
-  closeAllOverlays();
+  menuOpen.value = false;
+  activeSheet.value = null;
+  const state = await micPermissionState();
+  if (state === 'denied') {
+    micBlocked.value = true;
+    activeSheet.value = 'mic';
+    return;
+  }
+  if (state === 'granted' || micPrimerSeen()) {
+    await beginListening();
+    return;
+  }
+  micBlocked.value = false;
+  activeSheet.value = 'mic';
+}
+
+async function beginListening() {
   const ok = await voiceRecorder.start();
   if (!ok) {
-    showToast('Microphone permission denied — tap Type instead');
+    micBlocked.value = true;
+    activeSheet.value = 'mic';
     return;
   }
   unsubscribeAmp?.();
@@ -458,27 +519,40 @@ async function startMic() {
     soundDb.value = db;
   });
   listening.value = true;
-  heardText.value = language.value === 'tagalog'
-    ? 'Nagkokonekta sa live transcription…'
-    : language.value === 'english'
-      ? 'Connecting live transcription…'
-      : 'Nagkonektar sa live transcription…';
+  heardPartialText.value = '';
+  heardText.value = t('connecting_transcription');
+
+  // Keep the first words while the authenticated token and websocket connect.
+  const pendingPcm: string[] = [];
+  unsubscribePcm?.();
+  unsubscribePcm = voiceRecorder.onPcmChunk((chunk) => {
+    if (liveTranscription) liveTranscription.sendAudio(chunk);
+    else if (pendingPcm.length < 48) pendingPcm.push(chunk);
+  });
+
   try {
-    const session = await LiveTranscription.connect(language.value);
-    if (!listening.value) { session.close(); return; }
+    const session = await LiveTranscription.connect();
+    if (!listening.value) {
+      session.close();
+      pendingPcm.length = 0;
+      unsubscribePcm?.();
+      unsubscribePcm = null;
+      return;
+    }
     liveTranscription = session;
     unsubscribeTranscript = session.onTranscript((partial, committed) => {
-      heardText.value = [committed, partial].filter(Boolean).join(' ');
+      heardText.value = committed;
+      heardPartialText.value = partial;
     });
-    unsubscribePcm = voiceRecorder.onPcmChunk((chunk) => session.sendAudio(chunk));
-    if (!heardText.value) heardText.value = 'Listening…';
+    for (const chunk of pendingPcm) session.sendAudio(chunk);
+    pendingPcm.length = 0;
   } catch {
-    showToast('Live captions unavailable — transcription runs when you tap Done');
-    heardText.value = language.value === 'english'
-      ? 'Speak your question… tap Done when finished.'
-      : language.value === 'tagalog'
-        ? 'Magsalita lang po… pindutin ang Done kapag tapos na.'
-        : 'Istorya lang Lola/Lolo… pinduta ang Done kung humana ka.';
+    pendingPcm.length = 0;
+    heardPartialText.value = '';
+    unsubscribePcm?.();
+    unsubscribePcm = null;
+    showToast(t('live_captions_unavailable'));
+    heardText.value = t('speak_done_hint');
   }
 }
 
@@ -486,44 +560,45 @@ async function finishMicAndAsk() {
   if (!listening.value) return;
   unsubscribeAmp?.();
   unsubscribeAmp = null;
-  unsubscribePcm?.();
-  unsubscribePcm = null;
   soundDb.value = -60;
   listening.value = false;
 
   const session = liveTranscription;
-  liveTranscription = null;
-  unsubscribeTranscript?.();
-  unsubscribeTranscript = null;
   const format = voiceRecorder.getFormat();
   const mimeType = voiceRecorder.getMimeType();
+  // Stop capture before committing, but keep forwarding the final PCM frames.
   const bytes = await voiceRecorder.stop();
-  if (!bytes || bytes.byteLength === 0) {
-    showToast("Didn't catch that — please try speaking again");
+  unsubscribePcm?.();
+  unsubscribePcm = null;
+  liveTranscription = null;
+
+  if (session) {
+    let transcript = '';
+    try {
+      transcript = await session.commit();
+    } catch {
+      transcript = session.getTranscript();
+    }
+    session.close();
+    unsubscribeTranscript?.();
+    unsubscribeTranscript = null;
+    if (transcript) {
+      await runConversation({ text: transcript });
+      return;
+    }
+    // Do not silently replace a live Bisaya/Tagalog transcript with a second
+    // language-detection pass over the recording.
+    showToast(t('transcript_finalize_error')); 
     return;
   }
 
-  if (session) {
-    try {
-      const transcript = await session.commit();
-      session.close();
-      if (!transcript) {
-        showToast("Didn't catch that — please try again");
-        return;
-      }
-      await runConversation({ text: transcript });
-      return;
-    } catch {
-      session.close();
-      showToast('Live transcription ended — finishing transcription…');
-    }
+  unsubscribeTranscript?.();
+  unsubscribeTranscript = null;
+  if (!bytes || bytes.byteLength === 0) {
+    showToast(t('transcript_empty_error')); 
+    return;
   }
-
-  await runConversation({
-    audioBytes: bytes,
-    audioFormat: format,
-    audioMimeType: mimeType,
-  });
+  await runConversation({ audioBytes: bytes, audioFormat: format, audioMimeType: mimeType });
 }
 
 async function cancelMic() {
@@ -550,6 +625,7 @@ function toggleMenu() {
 }
 
 function closeAllOverlays() {
+  if (activeSheet.value === 'mic') markMicPrimerSeen();
   menuOpen.value = false;
   activeSheet.value = null;
 }
@@ -571,7 +647,7 @@ async function clearMemory() {
   await profileService.saveMemory('', '');
   userSummary.value = '';
   userNotes.value = '';
-  showToast('Memory cleared');
+  showToast(t('memory_cleared'));
 }
 
 function openProfileSheet() {
@@ -609,8 +685,8 @@ async function handleLogout() {
     <div class="agakai-shell">
       <!-- Top Bar -->
       <header class="top">
-        <button class="logo" type="button" title="Reset conversation" @click="resetToHome">
-          <span class="mark"><img src="/assets/icon.png?v=repair2" alt="" /></span>
+        <button class="logo" type="button" :title="t('reset_conversation')" @click="resetToHome">
+          <span class="mark"><img src="/assets/mark.png?v=2" alt="" /></span>
           AgakAI
         </button>
         <button class="chip" type="button" @click="openProfileSheet">
@@ -624,17 +700,17 @@ async function handleLogout() {
         <!-- Greeting + Suggestion Cards (shown when conversation is empty) -->
         <div v-if="showHello" class="hello">
           <h1>
-            Maayong adlaw,<br />
+            {{ t('greeting_prefix') }}<br />
             <span class="grad">{{ displayGreetingName }}</span>
           </h1>
-          <p class="sub">Tap the mic and just talk.</p>
+          <p class="sub">{{ t('greeting_tap_mic') }}</p>
 
           <button class="sugg" type="button" @click="ask('Unsa ang akong mga benepisyo?')">
-            My benefits
+            {{ t('suggest_benefits') }}
             <svg class="i go"><use href="#go" /></svg>
           </button>
           <button class="sugg" type="button" @click="ask('Asa ko pwede mag pa tambal?')">
-            Where can I get treatment?
+            {{ t('suggest_treatment') }}
             <svg class="i go"><use href="#go" /></svg>
           </button>
           <button
@@ -642,7 +718,7 @@ async function handleLogout() {
             type="button"
             @click="ask('Naay lain nga lolo nga pwede nako maka-chat?')"
           >
-            Meet other seniors
+            {{ t('suggest_friends') }}
             <svg class="i go"><use href="#go" /></svg>
           </button>
         </div>
@@ -671,7 +747,7 @@ async function handleLogout() {
               @click="speak(item.say, item.audioBytes)"
             >
               <svg class="i"><use href="#sound" /></svg>
-              Hear again
+              {{ t('hear_again') }}
             </button>
           </div>
 
@@ -679,7 +755,7 @@ async function handleLogout() {
           <div v-else-if="item.kind === 'card-treatment'" class="card fade-up">
             <div class="head">
               <svg class="i"><use href="#award" /></svg>
-              From your LGU benefits
+              {{ t('from_lgu_benefits') }}
             </div>
             <div class="body">
               <svg class="map" viewBox="0 0 340 150" preserveAspectRatio="xMidYMid slice">
@@ -709,13 +785,13 @@ async function handleLogout() {
               </div>
             </div>
             <div class="rowb">
-              <button class="btn pri" type="button" @click="showToast('Opening map directions…')">
+              <button class="btn pri" type="button" @click="showToast(t('opening_directions'))">
                 <svg class="i"><use href="#pin" /></svg>
-                Directions
+                {{ t('directions') }}
               </button>
               <button class="btn" type="button" @click="speak(item.say, item.audioBytes)">
                 <svg class="i"><use href="#sound" /></svg>
-                Hear again
+                {{ t('hear_again') }}
               </button>
             </div>
           </div>
@@ -724,7 +800,7 @@ async function handleLogout() {
           <div v-else-if="item.kind === 'card-benefits'" class="card fade-up">
             <div class="head">
               <svg class="i"><use href="#award" /></svg>
-              My benefits
+              {{ t('suggest_benefits') }}
             </div>
             <div class="body">
               <div v-for="(b, idx) in item.items" :key="idx" class="li">
@@ -738,11 +814,11 @@ async function handleLogout() {
             </div>
             <div class="rowb">
               <button class="btn pri" type="button" @click="openBenefitsSheet">
-                See all {{ item.totalCount }}
+                {{ t('see_all_count', { count: item.totalCount }) }}
               </button>
               <button class="btn" type="button" @click="speak(item.say, item.audioBytes)">
                 <svg class="i"><use href="#sound" /></svg>
-                Hear again
+                {{ t('hear_again') }}
               </button>
             </div>
           </div>
@@ -751,7 +827,7 @@ async function handleLogout() {
           <div v-else-if="item.kind === 'card-friend'" class="card fade-up">
             <div class="head">
               <svg class="i"><use href="#users" /></svg>
-              Suggested friend
+              {{ t('suggested_friend') }}
             </div>
             <div class="body">
               <div class="li">
@@ -764,10 +840,10 @@ async function handleLogout() {
             </div>
             <div class="rowb">
               <button class="btn pri" type="button" @click="respondFriend(item, true)">
-                Yes, introduce us
+                {{ t('introduce_us') }}
               </button>
               <button class="btn" type="button" @click="respondFriend(item, false)">
-                Not now
+                {{ t('not_now') }}
               </button>
             </div>
           </div>
@@ -777,28 +853,28 @@ async function handleLogout() {
       <!-- Bottom Dock: Speaking Status + Typebar / Pill -->
       <div class="dockwrap">
         <div class="status" :class="{ on: speaking }">
-          <span>Speaking…</span>
-          <button type="button" @click="stopSpeaking">Stop</button>
+          <span>{{ t('speaking') }}</span>
+          <button type="button" @click="stopSpeaking">{{ t('stop') }}</button>
         </div>
 
         <form class="typebar" :class="{ on: typingMode }" @submit.prevent="submitTypebar">
           <input
             ref="txtInput"
             v-model="draftText"
-            placeholder="Type your question…"
-            aria-label="Type your question"
+            :placeholder="t('type_question')"
+            :aria-label="t('type_question')"
             autocomplete="off"
             @keydown.escape="setTyping(false)"
           />
           <button
             type="button"
             class="x"
-            aria-label="Close keyboard"
+            :aria-label="t('close_keyboard')"
             @click="setTyping(false)"
           >
             <svg class="i"><use href="#x" /></svg>
           </button>
-          <button type="submit" class="send" aria-label="Send">
+          <button type="submit" class="send" :aria-label="t('send')">
             <svg class="i"><use href="#send" /></svg>
           </button>
         </form>
@@ -808,13 +884,13 @@ async function handleLogout() {
             <span class="circle">
               <svg class="i"><use href="#kb" /></svg>
             </span>
-            Type
+            {{ t('type') }}
           </button>
           <button class="db m" type="button" @click="startMic">
             <span class="circle">
               <svg class="i"><use href="#mic" /></svg>
             </span>
-            Talk
+            {{ t('talk') }}
           </button>
           <button
             class="db"
@@ -826,7 +902,7 @@ async function handleLogout() {
             <span class="circle">
               <svg class="i"><use href="#menu" /></svg>
             </span>
-            Menu
+            {{ t('menu') }}
           </button>
         </nav>
       </div>
@@ -837,14 +913,14 @@ async function handleLogout() {
       <!-- Menu Popover -->
       <div class="pop" :class="{ on: menuOpen }" role="menu">
         <div class="logo">
-          <span class="mark"><img src="/assets/icon.png?v=repair2" alt="" /></span>
+          <span class="mark"><img src="/assets/mark.png?v=2" alt="" /></span>
           <span>
             AgakAI
-            <small>Senior benefits helper</small>
+            <small>{{ t('senior_benefits_helper') }}</small>
           </span>
         </div>
 
-        <div class="plabel">Text size</div>
+        <div class="plabel">{{ t('text_size') }}</div>
         <div class="seg">
           <button
             type="button"
@@ -872,7 +948,7 @@ async function handleLogout() {
           </button>
         </div>
 
-        <div class="plabel">Language</div>
+        <div class="plabel">{{ t('language') }}</div>
         <div class="seg">
           <button
             v-for="lang in APP_LANGUAGES"
@@ -888,23 +964,23 @@ async function handleLogout() {
 
         <button class="it" type="button" @click="openBenefitsSheet">
           <svg class="i"><use href="#award" /></svg>
-          View all benefits
+          {{ t('view_all_benefits') }}
         </button>
         <button class="it" type="button" @click="askMeetFriends">
           <svg class="i"><use href="#users" /></svg>
-          My friends
+          {{ t('friends') }}
         </button>
         <button class="it" type="button" @click="openAboutSheet">
           <svg class="i"><use href="#heart" /></svg>
-          What I know about you
+          {{ t('what_i_know') }}
         </button>
         <button class="it" type="button" @click="openProfileSheet">
           <svg class="i"><use href="#user" /></svg>
-          My profile
+          {{ t('my_profile') }}
         </button>
         <button class="it it--danger" type="button" @click="handleLogout">
           <svg class="i"><use href="#logout" /></svg>
-          Log out
+          {{ t('log_out') }}
         </button>
       </div>
 
@@ -914,7 +990,7 @@ async function handleLogout() {
 
         <!-- Sheet 1: My Benefits -->
         <template v-if="activeSheet === 'benefits'">
-          <h3>My benefits</h3>
+          <h3>{{ t('suggest_benefits') }}</h3>
           <div class="group">
             <button
               v-for="(b, idx) in mappedBenefits"
@@ -936,14 +1012,14 @@ async function handleLogout() {
         <!-- Sheet 2: What I know about you -->
         <template v-else-if="activeSheet === 'about'">
           <div class="sheet__head">
-            <h3>What I know about you</h3>
+            <h3>{{ t('what_i_know') }}</h3>
             <button
               v-if="hasMemory"
               class="sheet__clear"
               type="button"
               @click="clearMemory"
             >
-              Reset memory
+              {{ t('reset_memory') }}
             </button>
           </div>
           <div class="group">
@@ -951,7 +1027,7 @@ async function handleLogout() {
               <svg class="i"><use href="#user" /></svg>
               <span>
                 {{ profile ? `${profile.name}, ${profile.address}` : 'Maria Santos, Lapu-Lapu City' }}
-                <small>From your LGU</small>
+                <small>{{ t('from_your_lgu') }}</small>
               </span>
               <span class="tag">LGU</span>
             </div>
@@ -963,30 +1039,29 @@ async function handleLogout() {
           <div v-if="!hasMemory" class="sheet__empty">
             <svg class="i"><use href="#heart" /></svg>
             <p>
-              <b>No memory saved yet.</b><br />
-              Start talking or typing to AgakAI — I will automatically remember your questions,
-              interests, and concerns here.
+              <b>{{ t('no_memory') }}</b><br />
+              {{ t('memory_intro') }}
             </p>
           </div>
         </template>
 
         <!-- Sheet 3: Senior Profile Details -->
         <template v-else-if="activeSheet === 'profile'">
-          <h3>My profile</h3>
+          <h3>{{ t('my_profile') }}</h3>
           <div v-if="profile" class="group">
             <div class="li">
               <svg class="i"><use href="#user" /></svg>
               <span>
                 {{ profile.name }}
-                <small>Senior ID: {{ profile.seniorId }}</small>
+                <small>{{ t('senior_id') }}: {{ profile.seniorId }}</small>
               </span>
-              <span class="tag">{{ profile.age }} yrs</span>
+              <span class="tag">{{ profile.age }} {{ t('years_short') }}</span>
             </div>
             <div class="li">
               <svg class="i"><use href="#pin" /></svg>
               <span>
                 {{ profile.address }}
-                <small>Birthday: {{ profile.birthday }}</small>
+                <small>{{ t('birthday') }}: {{ profile.birthday }}</small>
               </span>
               <span class="tag">LGU</span>
             </div>
@@ -999,8 +1074,25 @@ async function handleLogout() {
           </div>
         </template>
 
-        <button class="btn" type="button" style="width: 100%" @click="closeAllOverlays">
-          Close
+        <!-- Sheet 4: Microphone permission onboarding -->
+        <template v-else-if="activeSheet === 'mic'">
+          <div class="mic">
+            <div class="mic__badge">
+              <svg class="i"><use href="#mic" /></svg>
+            </div>
+            <h3>{{ micCopy.title }}</h3>
+            <p class="mic__body">{{ micCopy.body }}</p>
+          </div>
+          <button class="btn pri" type="button" style="width: 100%" @click="enableMic">
+            {{ micCopy.allow }}
+          </button>
+          <button class="btn" type="button" style="width: 100%; margin-top: 10px" @click="useTypingInstead">
+            {{ micCopy.type }}
+          </button>
+        </template>
+
+        <button v-if="activeSheet !== 'mic'" class="btn" type="button" style="width: 100%" @click="closeAllOverlays">
+          {{ t('close') }}
         </button>
       </aside>
 
@@ -1010,21 +1102,26 @@ async function handleLogout() {
           type="button"
           class="orb"
           :style="{ transform: `scale(${orbScale})` }"
-          aria-label="Done speaking"
+          :aria-label="t('done_speaking')"
           @click="finishMicAndAsk"
         >
           <svg class="i orb__mic"><use href="#mic" /></svg>
         </button>
-        <h2>Listening…</h2>
-        <p class="heard">{{ heardText }}</p>
+        <h2>{{ t('listening') }}</h2>
+        <p class="heard" aria-live="polite">
+          <span>{{ heardText }}</span>
+          <span v-if="heardPartialText" class="heard__interim">
+            {{ heardText ? ` ${heardPartialText}` : heardPartialText }}
+          </span>
+        </p>
         <div class="listen__actions">
           <button class="btn pri" type="button" @click="finishMicAndAsk">
             <svg class="i"><use href="#check" /></svg>
-            Done speaking
+            {{ t('done_speaking') }}
           </button>
           <button class="btn" type="button" @click="cancelMic">
             <svg class="i"><use href="#x" /></svg>
-            Cancel
+            {{ t('cancel') }}
           </button>
         </div>
       </div>
@@ -1067,7 +1164,7 @@ async function handleLogout() {
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: #fff;
+  background: transparent;
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1734,6 +1831,11 @@ h1 {
   color: var(--muted);
 }
 
+.heard__interim {
+  font-style: italic;
+  opacity: 0.68;
+}
+
 .listen__actions {
   display: flex;
   flex-direction: column;
@@ -1836,6 +1938,45 @@ h1 {
   font-size: calc(var(--fs) * 0.95);
   line-height: 1.45;
   color: var(--ink);
+}
+
+.mic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  margin: 8px 0 18px;
+}
+
+.mic__badge {
+  width: 64px;
+  height: 64px;
+  border-radius: 24px;
+  background: var(--grad);
+  display: grid;
+  place-items: center;
+}
+
+.mic__badge .i {
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  stroke: #fff;
+}
+
+.mic h3 {
+  margin: 0;
+  font-size: calc(var(--fs) * 1.1);
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.mic__body {
+  margin: 0;
+  font-size: calc(var(--fs) * 0.92);
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .sheet__empty {

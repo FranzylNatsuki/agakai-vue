@@ -1,9 +1,9 @@
 import { appConfig, isAiConfigured } from '@/services/appConfig';
 import { transcribeElevenLabs } from '@/services/elevenLabs';
+import { readSseData } from '@/services/sse';
 import { benefitService } from '@/services/benefitService';
 import { profileService } from '@/services/profileService';
 import { parseMemory } from '@/services/memory';
-import { useSettings, type AppLanguage } from '@/composables/useSettings';
 import { mockAnswer } from '@/data/mock';
 
 export type AgakEvent =
@@ -48,30 +48,21 @@ function normalizeAudioMime(format?: string, mimeType?: string): { mime: string;
 /** Transcribes completed recordings with ElevenLabs only. */
 export async function transcribeAudio(
   audioBytes: Uint8Array,
-  language: AppLanguage,
   format?: string,
   mimeType?: string,
 ): Promise<string> {
   const { mime, ext } = normalizeAudioMime(format, mimeType);
-  return transcribeElevenLabs(audioBytes, mime, ext, language);
+  return transcribeElevenLabs(audioBytes, mime, ext);
 }
 
 function buildSystemInstruction(
-  language: AppLanguage,
   user: Record<string, unknown> | null | undefined,
   benefitsList: string,
   userNotes: string | null,
 ): string {
-  const langInstruction =
-    language === 'bisaya'
-      ? 'Respond primarily in natural, warm, easy-to-understand Bisaya (Cebuano), unless the senior explicitly asks in another language.'
-      : language === 'tagalog'
-        ? 'Respond primarily in natural, warm, easy-to-understand Tagalog (Filipino), unless the senior explicitly asks in another language.'
-        : 'Respond primarily in clear, warm, easy-to-understand Philippine English, unless the senior explicitly asks in Bisaya or Tagalog.';
-
   return [
     'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
-    langInstruction,
+    'Reply in the language the senior uses in their latest message. If they code-switch, mirror their mix naturally. Honor explicit language preferences they state in conversation or that are recorded in their support notes. Never use the app interface language as the response-language preference.',
     'Formatting & tone guidelines:',
     '- Keep answers concise (2 to 3 short sentences or a brief bulleted list) so it is quick to speak aloud and easy for an elderly person to follow.',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
@@ -164,9 +155,6 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
  */
 export const agakApi = {
   async *chatStream(req: ChatRequest): AsyncGenerator<AgakEvent> {
-    const { language } = useSettings();
-    const currentLang = language.value;
-
     if (!isAiConfigured()) {
       if (!appConfig.useMockData) {
         yield {
@@ -179,7 +167,7 @@ export const agakApi = {
 
       if (req.audioBytes) {
         try {
-          const question = await transcribeAudio(req.audioBytes, currentLang, req.audioFormat, req.audioMimeType);
+          const question = await transcribeAudio(req.audioBytes, req.audioFormat, req.audioMimeType);
           if (!question) throw new Error("I didn't catch that clearly. Please try again or type your question.");
           yield { type: 'transcript', question };
         } catch (error) {
@@ -202,12 +190,7 @@ export const agakApi = {
       // 1. Speech-to-Text (ElevenLabs Scribe)
       let questionText = (req.text ?? '').trim();
       if (req.audioBytes && req.audioBytes.byteLength > 0) {
-        questionText = await transcribeAudio(
-          req.audioBytes,
-          currentLang,
-          req.audioFormat,
-          req.audioMimeType,
-        );
+        questionText = await transcribeAudio(req.audioBytes, req.audioFormat, req.audioMimeType);
         if (!questionText) {
           yield {
             type: 'error',
@@ -235,7 +218,6 @@ export const agakApi = {
         .join('\n');
 
       const systemInstruction = buildSystemInstruction(
-        currentLang,
         req.user,
         benefitsSummary,
         userNotes,
@@ -263,7 +245,7 @@ export const agakApi = {
             ],
             generationConfig: {
               temperature: 0.5,
-              maxOutputTokens: 700,
+              maxOutputTokens: 1200,
             },
           }),
         });
@@ -291,43 +273,48 @@ export const agakApi = {
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = '';
       let fullAnswer = '';
+      let finishReason: string | null = null;
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        sseBuffer += decoder.decode(value, { stream: true });
+      for await (const payload of readSseData(response.body)) {
+        if (!payload || payload === '[DONE]') continue;
 
-        const lines = sseBuffer.split(/\r?\n/);
-        sseBuffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const payload = trimmed.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-
-          try {
-            const parsed = JSON.parse(payload) as {
-              candidates?: Array<{
-                content?: { parts?: Array<{ text?: string }> };
-              }>;
-            };
-            const parts = parsed.candidates?.[0]?.content?.parts ?? [];
-            for (const part of parts) {
-              if (part.text) {
-                fullAnswer += part.text;
-                yield { type: 'delta', text: part.text };
-
-              }
-            }
-          } catch {
-            // Ignore malformed SSE chunk
-          }
+        let parsed: {
+          error?: { message?: string };
+          candidates?: Array<{
+            content?: { parts?: Array<{ text?: string }> };
+            finishReason?: string;
+          }>;
+        };
+        try {
+          parsed = JSON.parse(payload);
+        } catch {
+          throw new Error('Gemini returned an invalid streaming response.');
         }
+        if (parsed.error?.message) throw new Error(parsed.error.message);
+
+        const candidate = parsed.candidates?.[0];
+        if (candidate?.finishReason) finishReason = candidate.finishReason;
+        for (const part of candidate?.content?.parts ?? []) {
+          if (!part.text) continue;
+          fullAnswer += part.text;
+          yield { type: 'delta', text: part.text };
+        }
+      }
+
+      if (finishReason === 'MAX_TOKENS') {
+        yield {
+          type: 'error',
+          message: 'AgakAI reached its response limit, so the answer may be incomplete. Please ask for a shorter answer.',
+        };
+        return;
+      }
+      if (!finishReason) {
+        yield {
+          type: 'error',
+          message: 'The answer stream ended before Gemini confirmed it was complete. Please try again.',
+        };
+        return;
       }
 
       if (!fullAnswer.trim()) {

@@ -14,13 +14,10 @@ import { agakApi } from '@/services/agakaiApi';
 import { voiceRecorder } from '@/services/voiceRecorder';
 import { ttsPlayer } from '@/services/ttsPlayer';
 import { profileService } from '@/services/profileService';
-import { useSettings } from '@/composables/useSettings';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'answering';
 
 const emit = defineEmits<{ (e: 'back'): void }>();
-const { language } = useSettings();
-
 const state = ref<VoiceState>('idle');
 const question = ref('');
 const answer = ref('');
@@ -145,7 +142,7 @@ async function runChat(req: {
           answer.value = event.answer;
           chatDone.value = true;
           const combinedAudio = concatUint8Arrays(audioChunks);
-          await ttsPlayer.play(combinedAudio, event.answer, language.value);
+          await ttsPlayer.play(combinedAudio, event.answer);
           break;
         }
         case 'error':

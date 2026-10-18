@@ -7,9 +7,9 @@ import tl from '@/locales/tl.json';
 export type AppLanguage = 'bisaya' | 'tagalog' | 'english';
 
 export const APP_LANGUAGES: { id: AppLanguage; code: string; nativeLabel: string }[] = [
+  { id: 'english', code: 'en', nativeLabel: 'English' },
   { id: 'bisaya', code: 'bis', nativeLabel: 'Bisaya' },
   { id: 'tagalog', code: 'tl', nativeLabel: 'Tagalog' },
-  { id: 'english', code: 'en', nativeLabel: 'English' },
 ];
 
 const TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
@@ -25,10 +25,25 @@ export type TextSizeIndex = 0 | 1 | 2;
 /** Enlarged text multiplier (legacy helper). */
 export const LARGE_TEXT_SCALE = 1.2;
 
+const LANGUAGE_KEY = 'agakai_ui_language';
+const storedLanguage = typeof localStorage === 'undefined'
+  ? null
+  : localStorage.getItem(LANGUAGE_KEY);
+const initialLanguage: AppLanguage = APP_LANGUAGES.some((item) => item.id === storedLanguage)
+  ? storedLanguage as AppLanguage
+  : 'english';
+const TEXT_SIZE_KEY = 'agakai_text_size_index';
+const storedTextSize = typeof localStorage === 'undefined'
+  ? null
+  : Number(localStorage.getItem(TEXT_SIZE_KEY));
+const initialTextSizeIndex: TextSizeIndex = storedTextSize === 1 || storedTextSize === 2
+  ? storedTextSize
+  : 0;
+
 const state = reactive({
-  language: 'bisaya' as AppLanguage,
-  textScale: 1,
-  textSizeIndex: 0 as TextSizeIndex,
+  language: initialLanguage,
+  textScale: initialTextSizeIndex === 0 ? 1 : initialTextSizeIndex === 1 ? 1.2 : 1.4,
+  textSizeIndex: initialTextSizeIndex,
 });
 
 function applyFontSize() {
@@ -47,7 +62,7 @@ export function useSettings() {
   const textSizeIndex = computed(() => state.textSizeIndex);
 
   function t(key: string, args?: Record<string, string | number>): string {
-    let value = TRANSLATIONS[state.language][key] ?? key;
+    let value = TRANSLATIONS[state.language][key] ?? TRANSLATIONS.english[key] ?? key;
     if (args) {
       for (const [k, v] of Object.entries(args)) {
         value = value.split(`{${k}}`).join(String(v));
@@ -58,12 +73,13 @@ export function useSettings() {
 
   function setLanguage(lang: AppLanguage) {
     state.language = lang;
-    // TODO(backend): persist language preference.
+    if (typeof localStorage !== 'undefined') localStorage.setItem(LANGUAGE_KEY, lang);
   }
 
   function setTextSizeIndex(index: TextSizeIndex) {
     state.textSizeIndex = index;
     state.textScale = index === 0 ? 1 : index === 1 ? 1.2 : 1.4;
+    if (typeof localStorage !== 'undefined') localStorage.setItem(TEXT_SIZE_KEY, String(index));
     applyFontSize();
   }
 

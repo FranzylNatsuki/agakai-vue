@@ -1,6 +1,5 @@
-import type { AppLanguage } from '@/composables/useSettings';
 import { appConfig } from '@/services/appConfig';
-import { speechLanguage } from '@/services/elevenLabs';
+import { getVoiceAuthHeaders } from '@/services/elevenLabs';
 
 const SOCKET_URL = 'wss://api.elevenlabs.io/v1/speech-to-text/realtime';
 type TranscriptListener = (partial: string, committed: string) => void;
@@ -23,19 +22,28 @@ export class LiveTranscription {
     });
   }
 
-  static async connect(language: AppLanguage): Promise<LiveTranscription> {
-    const response = await fetch(`${appConfig.elevenLabsProxyUrl}/stt-token`, {
-      method: 'POST', credentials: 'same-origin', signal: AbortSignal.timeout(15_000),
+  static async connect(): Promise<LiveTranscription> {
+    const headers = await getVoiceAuthHeaders();
+    const response = await fetch(`${appConfig.elevenLabsFunctionUrl}/stt-token`, {
+      method: 'POST', headers, signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error('Live transcription token unavailable');
+    if (!response.headers.get('content-type')?.includes('application/json')) {
+      throw new Error('The Agak voice service returned an unexpected response.');
+    }
     const { token } = await response.json();
     if (typeof token !== 'string' || !token) throw new Error('Invalid live transcription token');
     const url = new URL(SOCKET_URL);
     url.searchParams.set('model_id', 'scribe_v2_realtime');
     url.searchParams.set('token', token);
     url.searchParams.set('audio_format', 'pcm_16000');
-    url.searchParams.set('language_code', speechLanguage(language));
-    url.searchParams.set('commit_strategy', 'manual');
+    // VAD stabilizes completed phrases during natural pauses instead of
+    // revising one long interim hypothesis until the user taps Done.
+    url.searchParams.set('commit_strategy', 'vad');
+    url.searchParams.set('vad_silence_threshold_secs', '1.5');
+    url.searchParams.set('vad_threshold', '0.4');
+    url.searchParams.set('min_speech_duration_ms', '100');
+    url.searchParams.set('min_silence_duration_ms', '100');
     const socket = new WebSocket(url);
     const opened = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Live transcription connection timed out')), 12_000);
@@ -52,6 +60,10 @@ export class LiveTranscription {
     return () => { this.listeners.delete(listener); };
   }
 
+  getTranscript(): string {
+    return [this.committed.join(' '), this.partial].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  }
+
   sendAudio(audioBase64: string): void {
     if (this.closed || this.failure || this.socket.readyState !== WebSocket.OPEN) return;
     if (this.socket.bufferedAmount > 512_000) {
@@ -65,15 +77,20 @@ export class LiveTranscription {
   }
 
   async commit(): Promise<string> {
-    if (this.failure) throw this.failure;
-    if (this.socket.readyState !== WebSocket.OPEN) throw new Error('Live transcription disconnected');
+    if (this.failure || this.socket.readyState !== WebSocket.OPEN) {
+      const transcript = this.getTranscript();
+      if (transcript) return transcript;
+      throw this.failure ?? new Error('Live transcription disconnected');
+    }
     const result = new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!this.commitResolve) return;
         this.commitResolve = null;
         this.commitReject = null;
-        reject(new Error('Live transcript timed out'));
-      }, 10_000);
+        const transcript = this.getTranscript();
+        if (transcript) resolve(transcript);
+        else reject(new Error('Live transcript timed out'));
+      }, 15_000);
       this.commitResolve = (text) => { clearTimeout(timer); resolve(text); };
       this.commitReject = (error) => { clearTimeout(timer); reject(error); };
     });
@@ -109,7 +126,12 @@ export class LiveTranscription {
           this.commitReject = null;
           resolve(transcript);
         }
-      } else if (message.message_type === 'error' || message.message_type === 'auth_error') {
+      } else if (typeof message.message_type === 'string' && (
+        message.message_type.includes('error') ||
+        ['auth_error', 'quota_exceeded', 'rate_limited', 'commit_throttled', 'queue_overflow',
+          'resource_exhausted', 'session_time_limit_exceeded', 'chunk_size_exceeded',
+          'insufficient_audio_activity', 'unaccepted_terms'].includes(message.message_type)
+      )) {
         this.fail(new Error('Live transcription failed'));
       }
       for (const listener of this.listeners) listener(this.partial, this.committed.join(' '));

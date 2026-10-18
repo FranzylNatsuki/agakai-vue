@@ -46,10 +46,10 @@ export const ttsPlayer = {
     const pending = new AbortController();
     controller = pending;
     try {
-      await playElevenLabsSpeech(clean, language,
+      await playElevenLabsSpeech(clean,
         AbortSignal.any([pending.signal, AbortSignal.timeout(120_000)]), () => {
           if (generation === playbackGeneration) setSpeaking(true);
-        });
+        }, language);
     } catch {
       if (generation === playbackGeneration && !pending.signal.aborted) {
         throw new Error('ElevenLabs speech is unavailable. You can read the answer on screen.');

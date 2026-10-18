@@ -150,7 +150,6 @@ vite.config.ts.timestamp-*
 .turbo
 
 # Mobile platforms (Capacitor)
-android
 ios
 
 # OS generated files

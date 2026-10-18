@@ -6,8 +6,10 @@ import { useRouter } from 'vue-router';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { authService } from '@/services/authService';
 import { ttsPlayer } from '@/services/ttsPlayer';
+import { useSettings } from '@/composables/useSettings';
 
 const router = useRouter();
+const { t } = useSettings();
 
 const seniorId = ref('');
 const pin = ref('');
@@ -28,7 +30,7 @@ async function login() {
   const id = seniorId.value.trim();
   const code = pin.value.trim();
   if (!id || !code) {
-    fail('Please fill in all fields.');
+    fail(t('login_fill_fields')); 
     return;
   }
 
@@ -36,9 +38,9 @@ async function login() {
   void ttsPlayer.stop();
   try {
     await authService.login(id, code);
-    await router.replace('/app');
-  } catch (e) {
-    fail((e as Error).message.replace('Exception: ', ''));
+    await router.replace({ name: 'onboarding', query: { step: 'voice' } });
+  } catch {
+    fail(t('login_invalid_credentials'));
   } finally {
     isLoading.value = false;
   }
@@ -58,21 +60,21 @@ function onPinInput(event: Event) {
 
         <form class="login-card fade-up" @submit.prevent="login">
           <div class="field">
-            <label class="field__label" for="senior-id">Senior ID</label>
+            <label class="field__label" for="senior-id">{{ t('senior_id') }}</label>
             <div class="field__box">
               <svg class="i field__icon"><use href="#user" /></svg>
               <input
                 id="senior-id"
                 v-model="seniorId"
                 type="text"
-                placeholder="Enter your Senior ID"
+                :placeholder="t('login_id_placeholder')"
                 autocomplete="username"
               />
             </div>
           </div>
 
           <div class="field">
-            <label class="field__label" for="senior-pin">PIN</label>
+            <label class="field__label" for="senior-pin">{{ t('pin') }}</label>
             <div class="field__box">
               <input
                 id="senior-pin"
@@ -81,14 +83,14 @@ function onPinInput(event: Event) {
                 inputmode="numeric"
                 pattern="[0-9]*"
                 maxlength="6"
-                placeholder="Enter your 6-number PIN"
+                :placeholder="t('login_pin_placeholder')"
                 autocomplete="current-password"
                 @input="onPinInput"
               />
               <button
                 class="eye"
                 type="button"
-                aria-label="Toggle PIN visibility"
+                :aria-label="t('login_toggle_pin')"
                 @click="obscure = !obscure"
               >
                 <IonIcon :icon="obscure ? eyeOffOutline : eyeOutline" />
@@ -98,7 +100,7 @@ function onPinInput(event: Event) {
 
           <button class="btn pri submit-btn" type="submit" :disabled="isLoading">
             <LoadingSpinner v-if="isLoading" :size="22" class="login-spinner" />
-            <template v-else>Log in</template>
+            <template v-else>{{ t('login_submit') }}</template>
           </button>
         </form>
       </section>

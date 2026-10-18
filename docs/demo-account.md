@@ -14,6 +14,10 @@ The app derives an internal address from the Senior ID. It is never shown and ne
 sc-2024-0001@seniors.agakai.local
 ```
 
+## Status
+
+Created and verified in the linked project: password sign-in returns a session, and RLS exposes exactly one profile row (`sc-2024-0001`). The auth user id is `2fd41f91-4377-447c-8a3a-67f4b92ea284`.
+
 ## Create it once
 
 The account must exist in Supabase Auth; the profile row is created by a trigger.
