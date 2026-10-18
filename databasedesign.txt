@@ -1,0 +1,58 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.benefit (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  title text NOT NULL,
+  description text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  lgu text,
+  category text DEFAULT 'General'::text,
+  date date,
+  lgu_id integer,
+  iconkey text,
+  simplified_description text,
+  eligibility text,
+  location text,
+  date_and_location text,
+  icon_key text DEFAULT 'cash'::text,
+  CONSTRAINT benefit_pkey PRIMARY KEY (id),
+  CONSTRAINT benefit_lgu_id_fkey FOREIGN KEY (lgu_id) REFERENCES public.lgu(id)
+);
+CREATE TABLE public.lgu (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  name text NOT NULL,
+  level text,
+  location text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT lgu_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.user (
+  id integer GENERATED ALWAYS AS IDENTITY NOT NULL,
+  name text,
+  senior_id text,
+  mobile_no text,
+  age integer,
+  birthday text,
+  address text,
+  gender text,
+  user_notes text DEFAULT ''::text,
+  conversation_history jsonb DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  interests ARRAY DEFAULT '{}'::text[],
+  city text DEFAULT 'Manila'::text,
+  auth_user_id uuid UNIQUE,
+  user_summary text NOT NULL DEFAULT ''::text,
+  CONSTRAINT user_pkey PRIMARY KEY (id),
+  CONSTRAINT user_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.messages (
+  id integer NOT NULL DEFAULT nextval('messages_id_seq'::regclass),
+  sender_id integer,
+  receiver_id integer,
+  message text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT messages_pkey PRIMARY KEY (id),
+  CONSTRAINT messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.user(id),
+  CONSTRAINT messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.user(id)
+);

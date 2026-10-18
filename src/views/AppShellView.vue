@@ -14,6 +14,7 @@ import { agakApi } from '@/services/agakaiApi';
 import { voiceRecorder } from '@/services/voiceRecorder';
 import { LiveTranscription } from '@/services/liveTranscription';
 import { ttsPlayer } from '@/services/ttsPlayer';
+import MessagesSheet from '@/components/messaging/MessagesSheet.vue';
 
 type ChatItem =
   | { id: number; kind: 'user'; text: string }
@@ -53,7 +54,9 @@ type ChatItem =
       responded?: boolean;
     };
 
-type SheetMode = null | 'benefits' | 'about' | 'profile';
+type SheetMode = null | 'benefits' | 'about' | 'profile' | 'messages';
+
+const activeContactForChat = ref<number | null>(null);
 
 const router = useRouter();
 const { language, textSizeIndex, setLanguage, setTextSizeIndex } = useSettings();
@@ -418,12 +421,13 @@ function respondFriend(item: Extract<ChatItem, { kind: 'card-friend' }>, accept:
   if (item.responded) return;
   item.responded = true;
   if (accept) {
-    void ask('Oo, ipaila ko kang Lolo Ben.');
+    openMessagesSheet(2);
   } else {
     messages.value.push({ id: nextId++, kind: 'user', text: 'Not now' });
     void scrollToBottom();
   }
 }
+
 
 // ---- Keyboard / Typebar --------------------------------------------------
 
@@ -578,6 +582,13 @@ function openProfileSheet() {
   menuOpen.value = false;
   activeSheet.value = 'profile';
 }
+
+function openMessagesSheet(contactId?: number | null) {
+  menuOpen.value = false;
+  activeContactForChat.value = contactId ?? null;
+  activeSheet.value = 'messages';
+}
+
 
 function askMeetFriends() {
   menuOpen.value = false;
@@ -890,10 +901,11 @@ async function handleLogout() {
           <svg class="i"><use href="#award" /></svg>
           View all benefits
         </button>
-        <button class="it" type="button" @click="askMeetFriends">
-          <svg class="i"><use href="#users" /></svg>
-          My friends
+        <button class="it" type="button" @click="openMessagesSheet(null)">
+          <svg class="i"><use href="#message" /></svg>
+          My messages & friends
         </button>
+
         <button class="it" type="button" @click="openAboutSheet">
           <svg class="i"><use href="#heart" /></svg>
           What I know about you
@@ -999,10 +1011,27 @@ async function handleLogout() {
           </div>
         </template>
 
-        <button class="btn" type="button" style="width: 100%" @click="closeAllOverlays">
+
+        <!-- Sheet 4: Messages & Community -->
+        <template v-else-if="activeSheet === 'messages'">
+          <MessagesSheet
+            :current-user-id="profile?.id ?? 1"
+            :initial-contact-id="activeContactForChat"
+            @close="closeAllOverlays"
+          />
+        </template>
+
+        <button
+          v-if="activeSheet !== 'messages'"
+          class="btn"
+          type="button"
+          style="width: 100%"
+          @click="closeAllOverlays"
+        >
           Close
         </button>
       </aside>
+
 
       <!-- Fullscreen Listening Orb Overlay -->
       <div class="listen" :class="{ on: listening }" aria-live="assertive">
