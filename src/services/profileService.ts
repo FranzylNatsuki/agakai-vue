@@ -1,13 +1,9 @@
-import { appConfig } from '@/services/appConfig';
+import { appConfig, isBackendConfigured } from '@/services/appConfig';
+import { getSupabase } from '@/services/supabase';
 import { mockProfile, mockUserNotes } from '@/data/mock';
-import type { Profile } from '@/models/profile';
+import { profileFromJson, type Profile } from '@/models/profile';
 
-/**
- * Loads the logged-in senior's record from the `user` table.
- * TODO(backend): all methods are intentionally blank placeholders.
- */
 let currentUserId: number | null = null;
-
 const USER_NOTES_STORAGE_KEY = 'agakai_user_notes';
 
 export const profileService = {
@@ -20,10 +16,29 @@ export const profileService = {
     return currentUserId !== null || appConfig.useMockData;
   },
 
-  /** TODO(backend): select * from `user` where id = currentUserId. */
+  /** Loads senior citizen record from Supabase `user` table. */
   async loadProfile(): Promise<Profile> {
-    if (appConfig.useMockData) return mockProfile;
-    throw new Error('Profile service not implemented yet.');
+    if (isBackendConfigured() && currentUserId !== null) {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('user')
+        .select('*')
+        .eq('id', currentUserId)
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      if (data) {
+        return profileFromJson(data);
+      }
+    }
+
+    if (appConfig.useMockData) {
+      return mockProfile;
+    }
+
+    throw new Error('Profile service not connected to the backend.');
   },
 
   async loadProfileOrNull(): Promise<Profile | null> {
@@ -34,20 +49,53 @@ export const profileService = {
     }
   },
 
-  /** TODO(backend): select user_notes from `user`. Return null on failure. */
+  /** Loads rolling user_notes from Supabase (or localStorage fallback). */
   async loadUserNotes(): Promise<string | null> {
+    if (isBackendConfigured() && currentUserId !== null) {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase
+          .from('user')
+          .select('user_notes')
+          .eq('id', currentUserId)
+          .maybeSingle();
+
+        if (data?.user_notes !== undefined && data.user_notes !== null) {
+          return data.user_notes;
+        }
+      } catch {
+        // Fall back to local storage
+      }
+    }
+
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem(USER_NOTES_STORAGE_KEY);
       if (saved !== null) return saved;
     }
-    if (appConfig.useMockData) return mockUserNotes;
+
+    if (appConfig.useMockData) {
+      return mockUserNotes;
+    }
+
     return null;
   },
 
-  /** Persist updated rolling support notes. */
+  /** Persists updated rolling support notes to Supabase and localStorage. */
   async saveUserNotes(notes: string): Promise<void> {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(USER_NOTES_STORAGE_KEY, notes);
+    }
+
+    if (isBackendConfigured() && currentUserId !== null) {
+      try {
+        const supabase = getSupabase();
+        await supabase
+          .from('user')
+          .update({ user_notes: notes, updated_at: new Date().toISOString() })
+          .eq('id', currentUserId);
+      } catch {
+        // Non-critical background save
+      }
     }
   },
 
