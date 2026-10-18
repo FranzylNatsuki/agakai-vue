@@ -1,6 +1,7 @@
-import { appConfig } from '@/services/appConfig';
+import { appConfig, isBackendConfigured } from '@/services/appConfig';
+import { getSupabase } from '@/services/supabase';
 import { mockBenefits } from '@/data/mock';
-import type { Benefit } from '@/models/benefit';
+import { benefitFromJson, type Benefit } from '@/models/benefit';
 
 const STOP_WORDS = new Set([
   'the', 'and', 'barangay', 'brgy', 'city', 'province', 'philippines',
@@ -32,10 +33,26 @@ export function isRelevantFor(benefit: Benefit, address?: string | null): boolea
 
 /**
  * Retrieval service for the `benefit` table.
- * TODO(backend): replace loadBenefits() with a Supabase query.
+ * Fetches from Supabase when configured, with mockBenefits fallback.
  */
 export const benefitService = {
   async loadBenefits(): Promise<Benefit[]> {
+    if (isBackendConfigured()) {
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from('benefit')
+          .select('*')
+          .order('title', { ascending: true });
+
+        if (!error && data && data.length > 0) {
+          return data.map(benefitFromJson);
+        }
+      } catch {
+        // Fall through to mock fallback
+      }
+    }
+
     if (appConfig.useMockData) return mockBenefits;
     return [];
   },

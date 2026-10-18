@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Centers the mobile-first UI inside the Tala `.phone` frame on wide desktop
+ * Centers the mobile-first UI inside the AgakAI `.phone` frame on wide desktop
  * viewports, and goes full-bleed on mobile screens (<= 480px).
  */
 </script>

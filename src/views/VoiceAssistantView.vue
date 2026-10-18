@@ -14,10 +14,12 @@ import { agakApi } from '@/services/agakaiApi';
 import { voiceRecorder } from '@/services/voiceRecorder';
 import { ttsPlayer } from '@/services/ttsPlayer';
 import { profileService } from '@/services/profileService';
+import { useSettings } from '@/composables/useSettings';
 
 type VoiceState = 'idle' | 'listening' | 'processing' | 'answering';
 
 const emit = defineEmits<{ (e: 'back'): void }>();
+const { language } = useSettings();
 
 const state = ref<VoiceState>('idle');
 const question = ref('');
@@ -33,6 +35,17 @@ const toast = ref({ open: false, message: '' });
 let chatGen = 0;
 let unsubscribeAmp: (() => void) | null = null;
 let audioChunks: Uint8Array[] = [];
+
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
 
 const dockLabel = computed(
   () =>
@@ -50,8 +63,8 @@ function showToast(message: string) {
 
 // ---- microphone ---------------------------------------------------------
 
-/** TODO(backend/native): real audio capture lives in services/voiceRecorder. */
 async function startListening() {
+  await ttsPlayer.stop();
   const ok = await voiceRecorder.start();
   if (!ok) {
     showToast("Voice isn't available on this device right now. You can still type your question below.");
@@ -76,7 +89,12 @@ async function stopListening() {
     showToast("I didn't catch that. Please try again.");
     return;
   }
-  await runChat({ audioBytes: bytes });
+  audioChunks = [];
+  await runChat({
+    audioBytes: bytes,
+    audioFormat: voiceRecorder.getFormat(),
+    audioMimeType: voiceRecorder.getMimeType(),
+  });
 }
 
 // ---- chat ---------------------------------------------------------------
@@ -95,7 +113,12 @@ function ask(q: string) {
   void runChat({ text });
 }
 
-async function runChat(req: { text?: string; audioBytes?: Uint8Array }) {
+async function runChat(req: {
+  text?: string;
+  audioBytes?: Uint8Array;
+  audioFormat?: string;
+  audioMimeType?: string;
+}) {
   const gen = ++chatGen;
   const profile = await profileService.loadProfileOrNull();
   const user = profile
@@ -104,7 +127,7 @@ async function runChat(req: { text?: string; audioBytes?: Uint8Array }) {
   if (gen !== chatGen) return;
 
   try {
-    for await (const event of agakApi.chatStream({ ...req, audioFormat: 'm4a', user })) {
+    for await (const event of agakApi.chatStream({ ...req, user })) {
       if (gen !== chatGen) return; // superseded by a newer ask
       switch (event.type) {
         case 'transcript':
@@ -112,17 +135,19 @@ async function runChat(req: { text?: string; audioBytes?: Uint8Array }) {
           question.value = event.question;
           break;
         case 'delta':
+          if (state.value !== 'answering') state.value = 'answering';
           answer.value += event.text;
           break;
         case 'audio':
           audioChunks.push(event.chunk);
           break;
-        case 'done':
+        case 'done': {
           answer.value = event.answer;
           chatDone.value = true;
-          // TODO(backend): play accumulated audio chunks as one file.
-          await ttsPlayer.play(new Uint8Array());
+          const combinedAudio = concatUint8Arrays(audioChunks);
+          await ttsPlayer.play(combinedAudio, event.answer, language.value);
           break;
+        }
         case 'error':
           state.value = 'answering';
           chatError.value = true;
@@ -165,6 +190,8 @@ function onMicTap() {
 onBeforeUnmount(() => {
   chatGen++;
   unsubscribeAmp?.();
+  void voiceRecorder.cancel();
+  void ttsPlayer.stop();
 });
 </script>
 

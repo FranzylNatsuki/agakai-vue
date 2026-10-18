@@ -18,7 +18,7 @@ const TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
   tagalog: tl,
 };
 
-/** 3-tier font sizes from Tala (20px, 24px, 28px). */
+/** 3-tier font sizes from AgakAI (20px, 24px, 28px). */
 export const TEXT_SIZES = [20, 24, 28] as const;
 export type TextSizeIndex = 0 | 1 | 2;
 

@@ -16,14 +16,22 @@ import { ttsPlayer } from '@/services/ttsPlayer';
 
 type ChatItem =
   | { id: number; kind: 'user'; text: string }
-  | { id: number; kind: 'think' }
-  | { id: number; kind: 'agent'; html?: string; markdown?: string; say?: string }
+  | { id: number; kind: 'think'; label?: string }
+  | {
+      id: number;
+      kind: 'agent';
+      html?: string;
+      markdown?: string;
+      say?: string;
+      audioBytes?: Uint8Array;
+    }
   | {
       id: number;
       kind: 'card-treatment';
       placeName: string;
       placeMeta: string;
       say: string;
+      audioBytes?: Uint8Array;
     }
   | {
       id: number;
@@ -31,6 +39,7 @@ type ChatItem =
       items: { icon: string; title: string; subtitle: string; tag: string }[];
       totalCount: number;
       say: string;
+      audioBytes?: Uint8Array;
     }
   | {
       id: number;
@@ -39,6 +48,7 @@ type ChatItem =
       name: string;
       subtitle: string;
       say: string;
+      audioBytes?: Uint8Array;
       responded?: boolean;
     };
 
@@ -61,6 +71,7 @@ const typingMode = ref(false);
 const draftText = ref('');
 const speaking = ref(false);
 const listening = ref(false);
+const soundDb = ref(-60);
 const heardText = ref('');
 const menuOpen = ref(false);
 const activeSheet = ref<SheetMode>(null);
@@ -68,13 +79,21 @@ const toastMessage = ref('');
 const toastVisible = ref(false);
 
 let nextId = 1;
-let micTimer: ReturnType<typeof setInterval> | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let unsubscribeAmp: (() => void) | null = null;
+let unsubscribeSpeaking: (() => void) | null = null;
 let chatGen = 0;
+
+/** Live voice level (0..1) mapped to orb scale while listening. */
+const orbScale = computed(() => {
+  if (!listening.value) return 1;
+  const normalized = Math.min(1, Math.max(0, (soundDb.value + 55) / 50));
+  return 1 + normalized * 0.38;
+});
 
 /** Honorific + first name (e.g. "Lola Maria" or "Lolo Miguel"). */
 const displayGreetingName = computed(() => {
-  if (!profile.value) return 'Lolo Miguel.';
+  if (!profile.value) return 'Lola Maria.';
   const honorific = profile.value.gender?.toLowerCase() === 'female' ? 'Lola' : 'Lolo';
   return `${honorific} ${firstName(profile.value)}.`;
 });
@@ -82,19 +101,19 @@ const displayGreetingName = computed(() => {
 /** LGU badge text in the top bar. */
 const lguBadge = computed(() => {
   const addr = profile.value?.address;
-  if (!addr) return 'Brgy. Poblacion LGU';
+  if (!addr) return 'Lapu-Lapu City LGU';
   const firstPart = addr.split(',')[0]?.trim();
-  return firstPart ? `${firstPart} LGU` : 'Brgy. Poblacion LGU';
+  return firstPart ? `${firstPart} LGU` : 'Lapu-Lapu City LGU';
 });
 
-/** Map project benefits to Tala's 4-column icon/title/subtitle/tag structure. */
+/** Map project benefits to AgakAI's 4-column icon/title/subtitle/tag structure. */
 const mappedBenefits = computed(() => {
   if (benefits.value.length === 0) {
     return [
-      { icon: 'cross', title: 'Free medical check-up', subtitle: 'Hospital X, every Monday', tag: 'Active' },
-      { icon: 'heart', title: 'Free maintenance medicine', subtitle: 'Barangay health center', tag: 'Active' },
-      { icon: 'award', title: 'Social pension ₱500', subtitle: 'Next payout: Nov 5', tag: 'Soon' },
-      { icon: 'pin', title: '20% fare discount', subtitle: 'Show your Senior ID', tag: 'Active' },
+      { icon: 'cross', title: 'Free medical check-up', subtitle: 'City Health Center', tag: 'Active' },
+      { icon: 'heart', title: 'Senior Discount (20%)', subtitle: 'Groceries, medicine & meals', tag: 'Active' },
+      { icon: 'award', title: 'Social Pension ₱1,000', subtitle: 'National / All LGUs', tag: 'Active' },
+      { icon: 'pin', title: 'Free Transport Fare', subtitle: 'Selected routes with Senior ID', tag: 'Active' },
     ];
   }
   return benefits.value.map((b) => {
@@ -102,22 +121,40 @@ const mappedBenefits = computed(() => {
     const icon =
       k.includes('med') || k.includes('health')
         ? 'cross'
-        : k.includes('food')
+        : k.includes('food') || k.includes('disc')
           ? 'heart'
           : k.includes('trans')
             ? 'pin'
             : 'award';
-    const tag = b.dateAndLocation.toLowerCase().includes('always') ? 'Active' : 'Active';
     return {
       icon,
       title: b.title,
-      subtitle: b.dateAndLocation,
-      tag,
+      subtitle: b.dateAndLocation || b.lgu,
+      tag: 'Active',
     };
   });
 });
 
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+let unsubscribeNotes: (() => void) | null = null;
+
 onMounted(async () => {
+  unsubscribeSpeaking = ttsPlayer.onSpeakingChange((val) => {
+    speaking.value = val;
+  });
+  unsubscribeNotes = profileService.onNotesChange((notes) => {
+    userNotes.value = notes;
+  });
   profile.value = await profileService.loadProfileOrNull();
   benefits.value = await benefitService.loadRelevantBenefits(profile.value?.address);
   userNotes.value = await profileService.loadUserNotes();
@@ -128,11 +165,11 @@ let removeBackListener: (() => void) | undefined;
 onMounted(async () => {
   const handle = await CapApp.addListener('backButton', () => {
     if (listening.value) {
-      stopMic();
+      void cancelMic();
     } else if (activeSheet.value || menuOpen.value) {
       closeAllOverlays();
     } else if (typingMode.value) {
-      setTyping(false);
+      void setTyping(false);
     } else if (messages.value.length > 0) {
       messages.value = [];
     } else {
@@ -144,8 +181,11 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   removeBackListener?.();
-  if (micTimer) clearInterval(micTimer);
+  unsubscribeAmp?.();
+  unsubscribeSpeaking?.();
+  unsubscribeNotes?.();
   if (toastTimer) clearTimeout(toastTimer);
+  void voiceRecorder.cancel();
   stopSpeaking();
 });
 
@@ -155,7 +195,7 @@ function showToast(text: string) {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     toastVisible.value = false;
-  }, 1800);
+  }, 2400);
 }
 
 async function scrollToBottom() {
@@ -167,111 +207,84 @@ async function scrollToBottom() {
 
 // ---- Speech synthesis (TTS) ----------------------------------------------
 
-function speak(text: string) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 0.85;
-  u.onstart = () => {
-    speaking.value = true;
-  };
-  u.onend = () => {
-    speaking.value = false;
-  };
-  u.onerror = () => {
-    speaking.value = false;
-  };
-  window.speechSynthesis.speak(u);
+function speak(text?: string, audioBytes?: Uint8Array) {
+  if (!text && (!audioBytes || audioBytes.byteLength === 0)) return;
+  void ttsPlayer.play(audioBytes ?? null, text, language.value);
 }
 
 function stopSpeaking() {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-  }
   void ttsPlayer.stop();
   speaking.value = false;
 }
 
-// ---- Chat & Rich Cards ---------------------------------------------------
+// ---- Chat & Rich Cards (Whisper STT + Gemini Streaming + Neural TTS) ------
 
 async function ask(questionText: string) {
   const q = questionText.trim();
   if (!q) return;
+  await runConversation({ text: q });
+}
 
+function appendSupplementalCard(
+  questionText: string,
+  answerText: string,
+  audioBytes?: Uint8Array,
+) {
+  const lower = questionText.toLowerCase();
+  if (/tambal|hospital|doktor|check-?up|medical|treatment|health/.test(lower)) {
+    messages.value.push({
+      id: nextId++,
+      kind: 'card-treatment',
+      placeName: 'City Health Center',
+      placeMeta: `${profile.value?.address || 'Lapu-Lapu City'} · Open today`,
+      say: answerText,
+      audioBytes,
+    });
+  } else if (/benep|benef/.test(lower)) {
+    const count = mappedBenefits.value.length;
+    messages.value.push({
+      id: nextId++,
+      kind: 'card-benefits',
+      items: mappedBenefits.value.slice(0, 3),
+      totalCount: count,
+      say: answerText,
+      audioBytes,
+    });
+  } else if (/lolo|lola|chat|kaibigan|friend|senior|higala/.test(lower)) {
+    messages.value.push({
+      id: nextId++,
+      kind: 'card-friend',
+      initials: 'LB',
+      name: 'Lolo Ben',
+      subtitle: 'Same barangay · loves chess & morning walks',
+      say: answerText,
+      audioBytes,
+    });
+  }
+}
+
+async function runConversation(req: {
+  text?: string;
+  audioBytes?: Uint8Array;
+  audioFormat?: string;
+  audioMimeType?: string;
+}) {
+  stopSpeaking();
   const gen = ++chatGen;
-  messages.value.push({ id: nextId++, kind: 'user', text: q });
+
+  let finalQuestion = (req.text ?? '').trim();
+  if (finalQuestion) {
+    messages.value.push({ id: nextId++, kind: 'user', text: finalQuestion });
+  }
+
   const thinkId = nextId++;
-  messages.value.push({ id: thinkId, kind: 'think' });
+  messages.value.push({
+    id: thinkId,
+    kind: 'think',
+    label: req.audioBytes ? 'Transcribing your voice…' : undefined,
+  });
   await scrollToBottom();
 
-  const lower = q.toLowerCase();
-
-  // Check if question matches Tala's rich interactive cards (treatment / benefits / friends)
-  if (/tambal|hospital|doktor|check-?up|medical|treatment/.test(lower)) {
-    setTimeout(async () => {
-      if (gen !== chatGen) return;
-      removeItem(thinkId);
-      const say =
-        'Naay libre nga pagpatambal sa Hospital X matag Lunes. Dad-a ang imong Senior ID ug barangay clearance.';
-      messages.value.push({
-        id: nextId++,
-        kind: 'agent',
-        html: 'Naay <b>libre nga pagpatambal</b> sa Hospital X matag Lunes. Dad-a ang:<ul><li>Senior ID</li><li>Barangay clearance</li></ul>',
-        say,
-      });
-      messages.value.push({
-        id: nextId++,
-        kind: 'card-treatment',
-        placeName: 'Hospital X',
-        placeMeta: '1.2 km · Open today',
-        say,
-      });
-      await scrollToBottom();
-      speak(say);
-    }, 850);
-    return;
-  }
-
-  if (/benep|benef/.test(lower)) {
-    setTimeout(async () => {
-      if (gen !== chatGen) return;
-      removeItem(thinkId);
-      const count = mappedBenefits.value.length;
-      const say = `Naa kay ${count} ka benepisyo. Ang sunod nga pension mao sa Nobyembre singko.`;
-      messages.value.push({
-        id: nextId++,
-        kind: 'card-benefits',
-        items: mappedBenefits.value.slice(0, 3),
-        totalCount: count,
-        say,
-      });
-      await scrollToBottom();
-      speak(say);
-    }, 850);
-    return;
-  }
-
-  if (/lolo|lola|chat|kaibigan|friend|senior/.test(lower)) {
-    setTimeout(async () => {
-      if (gen !== chatGen) return;
-      removeItem(thinkId);
-      const say =
-        'Si Lolo Ben gikan sa imong barangay mahilig sad og chess. Gusto ba nimo nga ipaila ko siya?';
-      messages.value.push({
-        id: nextId++,
-        kind: 'card-friend',
-        initials: 'LB',
-        name: 'Lolo Ben',
-        subtitle: 'Same barangay · loves chess',
-        say,
-      });
-      await scrollToBottom();
-      speak(say);
-    }, 850);
-    return;
-  }
-
-  // Otherwise stream from agakApi (supports Social Pension & general questions)
   try {
     const userPayload = profile.value
       ? {
@@ -285,10 +298,30 @@ async function ask(questionText: string) {
 
     let agentItemId: number | null = null;
     let accumulated = '';
+    const audioChunks: Uint8Array[] = [];
 
-    for await (const event of agakApi.chatStream({ text: q, user: userPayload })) {
+    for await (const event of agakApi.chatStream({
+      ...req,
+      user: userPayload,
+    })) {
       if (gen !== chatGen) return;
-      if (event.type === 'delta') {
+
+      if (event.type === 'transcript') {
+        finalQuestion = event.question;
+        // Insert the transcribed user bubble right before the thinking indicator
+        const thinkIdx = messages.value.findIndex((m) => m.id === thinkId);
+        const userItem: ChatItem = { id: nextId++, kind: 'user', text: event.question };
+        if (thinkIdx !== -1) {
+          messages.value.splice(thinkIdx, 0, userItem);
+          const thinkItem = messages.value.find((m) => m.id === thinkId);
+          if (thinkItem && thinkItem.kind === 'think') {
+            thinkItem.label = undefined;
+          }
+        } else {
+          messages.value.push(userItem);
+        }
+        await scrollToBottom();
+      } else if (event.type === 'delta') {
         removeItem(thinkId);
         accumulated += event.text;
         if (agentItemId === null) {
@@ -299,35 +332,65 @@ async function ask(questionText: string) {
           if (item && item.kind === 'agent') item.markdown = accumulated;
         }
         await scrollToBottom();
+      } else if (event.type === 'audio') {
+        audioChunks.push(event.chunk);
       } else if (event.type === 'done') {
         removeItem(thinkId);
         accumulated = event.answer || accumulated;
+        const combinedAudio =
+          audioChunks.length > 0 ? concatUint8Arrays(audioChunks) : undefined;
+
         if (agentItemId === null) {
-          messages.value.push({ id: nextId++, kind: 'agent', markdown: accumulated, say: accumulated });
+          agentItemId = nextId++;
+          messages.value.push({
+            id: agentItemId,
+            kind: 'agent',
+            markdown: accumulated,
+            say: accumulated,
+            audioBytes: combinedAudio,
+          });
         } else {
           const item = messages.value.find((m) => m.id === agentItemId);
           if (item && item.kind === 'agent') {
             item.markdown = accumulated;
             item.say = accumulated;
+            item.audioBytes = combinedAudio;
           }
         }
+
+        if (finalQuestion) {
+          appendSupplementalCard(finalQuestion, accumulated, combinedAudio);
+        }
         await scrollToBottom();
-        speak(accumulated.replace(/[*#>_-]/g, ''));
+        speak(accumulated, combinedAudio);
+
+        // Refresh rolling user_notes after Gemini updates them
+        setTimeout(async () => {
+          userNotes.value = await profileService.loadUserNotes();
+        }, 2000);
       } else if (event.type === 'error') {
         removeItem(thinkId);
-        const fallback = 'Salamat. Tabangan taka ana. Pwede nimo isulti pag-usab?';
-        messages.value.push({ id: nextId++, kind: 'agent', html: fallback, say: fallback });
+        messages.value.push({
+          id: nextId++,
+          kind: 'agent',
+          markdown: `**Pasensya na Lola/Lolo:** ${event.message}`,
+          say: event.message,
+        });
         await scrollToBottom();
-        speak(fallback);
+        speak(event.message);
       }
     }
-  } catch {
+  } catch (err) {
     if (gen !== chatGen) return;
     removeItem(thinkId);
-    const fallback = 'Salamat. Tabangan taka ana. Pwede nimo isulti pag-usab?';
-    messages.value.push({ id: nextId++, kind: 'agent', html: fallback, say: fallback });
+    const errMsg = (err as Error).message || 'Network error. Please try again.';
+    messages.value.push({
+      id: nextId++,
+      kind: 'agent',
+      markdown: `**Pasensya na:** ${errMsg}`,
+      say: errMsg,
+    });
     await scrollToBottom();
-    speak(fallback);
   }
 }
 
@@ -340,15 +403,7 @@ function respondFriend(item: Extract<ChatItem, { kind: 'card-friend' }>, accept:
   if (item.responded) return;
   item.responded = true;
   if (accept) {
-    messages.value.push({ id: nextId++, kind: 'user', text: 'Yes, introduce us' });
-    void scrollToBottom();
-    setTimeout(() => {
-      const replyText =
-        'Sige! Gipadala na nako ang imong pangalan ni Lolo Ben. Ipahibalo ta ka kung mo-oo siya.';
-      messages.value.push({ id: nextId++, kind: 'agent', html: replyText, say: replyText });
-      void scrollToBottom();
-      speak(replyText);
-    }, 500);
+    void ask('Oo, ipaila ko kang Lolo Ben.');
   } else {
     messages.value.push({ id: nextId++, kind: 'user', text: 'Not now' });
     void scrollToBottom();
@@ -374,41 +429,56 @@ function submitTypebar() {
 
 // ---- Microphone / Fullscreen Listening Overlay ---------------------------
 
-const DEMO_UTTERANCE = 'Asa ko pwede mag pa tambal?';
-
 async function startMic() {
   stopSpeaking();
   closeAllOverlays();
   const ok = await voiceRecorder.start();
   if (!ok) {
-    showToast('Voice unavailable — tap Type instead');
+    showToast('Microphone permission denied — tap Type instead');
     return;
   }
+  unsubscribeAmp?.();
+  soundDb.value = -60;
+  unsubscribeAmp = voiceRecorder.onAmplitude((db) => {
+    soundDb.value = db;
+  });
   listening.value = true;
-  heardText.value = '';
-  let n = 0;
-  if (micTimer) clearInterval(micTimer);
-  micTimer = setInterval(() => {
-    n++;
-    heardText.value = DEMO_UTTERANCE.slice(0, n * 2);
-    if (n * 2 >= DEMO_UTTERANCE.length) {
-      stopMic(true);
-      void ask(DEMO_UTTERANCE);
-    }
-  }, 110);
+  heardText.value =
+    language.value === 'tagalog'
+      ? 'Magsalita lang po… pindutin ang Done kapag tapos na.'
+      : language.value === 'english'
+        ? 'Speak your question… tap Done when finished.'
+        : 'Istorya lang Lola/Lolo… pinduta ang Done kung humana ka.';
 }
 
-function stopMic(finished = false) {
-  if (micTimer) {
-    clearInterval(micTimer);
-    micTimer = null;
-  }
+async function finishMicAndAsk() {
+  if (!listening.value) return;
+  unsubscribeAmp?.();
+  unsubscribeAmp = null;
+  soundDb.value = -60;
   listening.value = false;
-  if (!finished) {
-    void voiceRecorder.cancel();
-  } else {
-    void voiceRecorder.stop();
+
+  const format = voiceRecorder.getFormat();
+  const mimeType = voiceRecorder.getMimeType();
+  const bytes = await voiceRecorder.stop();
+  if (!bytes || bytes.byteLength === 0) {
+    showToast("Didn't catch that — please try speaking again");
+    return;
   }
+
+  await runConversation({
+    audioBytes: bytes,
+    audioFormat: format,
+    audioMimeType: mimeType,
+  });
+}
+
+async function cancelMic() {
+  unsubscribeAmp?.();
+  unsubscribeAmp = null;
+  soundDb.value = -60;
+  listening.value = false;
+  await voiceRecorder.cancel();
 }
 
 // ---- Menu Popover & Bottom Sheets ----------------------------------------
@@ -430,9 +500,15 @@ function openBenefitsSheet() {
   activeSheet.value = 'benefits';
 }
 
-function openAboutSheet() {
+async function openAboutSheet() {
   menuOpen.value = false;
   activeSheet.value = 'about';
+  userNotes.value = await profileService.loadUserNotes();
+}
+
+async function clearMemory() {
+  await profileService.saveUserNotes('');
+  showToast('Memory cleared');
 }
 
 function openProfileSheet() {
@@ -442,16 +518,17 @@ function openProfileSheet() {
 
 function askMeetFriends() {
   menuOpen.value = false;
-  void ask('Naay lain nga lolo nga pwede nako maka-chat?');
+  void ask('Naay lain nga senior citizen nga pwede nako maka-chat?');
 }
 
 function selectBenefitFromSheet(title: string) {
   activeSheet.value = null;
-  void ask(`Unsaon nako pag-gamit sa ${title}?`);
+  void ask(`Unsaon nako pag-gamit o pag-claim sa ${title}?`);
 }
 
 function resetToHome() {
   closeAllOverlays();
+  stopSpeaking();
   messages.value = [];
 }
 
@@ -466,7 +543,7 @@ async function handleLogout() {
 
 <template>
   <IonPage>
-    <div class="tala-shell">
+    <div class="agakai-shell">
       <!-- Top Bar -->
       <header class="top">
         <button class="logo" type="button" title="Reset conversation" @click="resetToHome">
@@ -475,7 +552,7 @@ async function handleLogout() {
               <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z" />
             </svg>
           </span>
-          Tala
+          AgakAI
         </button>
         <button class="chip" type="button" @click="openProfileSheet">
           <svg class="i"><use href="#check" /></svg>
@@ -521,12 +598,22 @@ async function handleLogout() {
           <!-- Thinking Dots -->
           <div v-else-if="item.kind === 'think'" class="think fade-in">
             <i /><i /><i />
+            <span v-if="item.label" class="think__label">{{ item.label }}</span>
           </div>
 
           <!-- Agent Bubble -->
           <div v-else-if="item.kind === 'agent'" class="msg agent fade-up">
             <div v-if="item.html" v-html="item.html" />
             <MarkdownContent v-else-if="item.markdown" :source="item.markdown" />
+            <button
+              v-if="item.say"
+              class="msg__speak"
+              type="button"
+              @click="speak(item.say, item.audioBytes)"
+            >
+              <svg class="i"><use href="#sound" /></svg>
+              Hear again
+            </button>
           </div>
 
           <!-- Rich Card: Treatment / Map -->
@@ -567,7 +654,7 @@ async function handleLogout() {
                 <svg class="i"><use href="#pin" /></svg>
                 Directions
               </button>
-              <button class="btn" type="button" @click="speak(item.say)">
+              <button class="btn" type="button" @click="speak(item.say, item.audioBytes)">
                 <svg class="i"><use href="#sound" /></svg>
                 Hear again
               </button>
@@ -594,7 +681,7 @@ async function handleLogout() {
               <button class="btn pri" type="button" @click="openBenefitsSheet">
                 See all {{ item.totalCount }}
               </button>
-              <button class="btn" type="button" @click="speak(item.say)">
+              <button class="btn" type="button" @click="speak(item.say, item.audioBytes)">
                 <svg class="i"><use href="#sound" /></svg>
                 Hear again
               </button>
@@ -639,9 +726,10 @@ async function handleLogout() {
           <input
             ref="txtInput"
             v-model="draftText"
-            placeholder="Type your question"
+            placeholder="Type your question…"
             aria-label="Type your question"
             autocomplete="off"
+            @keydown.escape="setTyping(false)"
           />
           <button
             type="button"
@@ -696,7 +784,7 @@ async function handleLogout() {
             </svg>
           </span>
           <span>
-            Tala
+            AgakAI
             <small>Senior benefits helper</small>
           </span>
         </div>
@@ -792,35 +880,37 @@ async function handleLogout() {
 
         <!-- Sheet 2: What I know about you -->
         <template v-else-if="activeSheet === 'about'">
-          <h3>What I know about you</h3>
+          <div class="sheet__head">
+            <h3>What I know about you</h3>
+            <button
+              v-if="userNotes && userNotes.trim()"
+              class="sheet__clear"
+              type="button"
+              @click="clearMemory"
+            >
+              Reset memory
+            </button>
+          </div>
           <div class="group">
             <div class="li">
               <svg class="i"><use href="#user" /></svg>
               <span>
-                {{ profile ? `${profile.name}, ${profile.address}` : 'Lolo Miguel, Brgy. Poblacion' }}
+                {{ profile ? `${profile.name}, ${profile.address}` : 'Maria Santos, Lapu-Lapu City' }}
                 <small>From your LGU</small>
               </span>
               <span class="tag">LGU</span>
             </div>
-            <div class="li">
-              <svg class="i"><use href="#heart" /></svg>
-              <span>
-                You like chess & morning walks
-                <small>You told me on Monday</small>
-              </span>
-              <span class="tag">You</span>
-            </div>
-            <div class="li">
-              <svg class="i"><use href="#sound" /></svg>
-              <span>
-                You prefer slow speech
-                <small>I noticed this</small>
-              </span>
-              <span class="tag">Me</span>
-            </div>
           </div>
-          <div v-if="userNotes" class="sheet__notes">
+          <div v-if="userNotes && userNotes.trim()" class="sheet__notes">
             <MarkdownContent :source="userNotes" variant="notes" />
+          </div>
+          <div v-else class="sheet__empty">
+            <svg class="i"><use href="#heart" /></svg>
+            <p>
+              <b>No memory saved yet.</b><br />
+              Start talking or typing to AgakAI — I will automatically remember your questions,
+              interests, and concerns here.
+            </p>
           </div>
         </template>
 
@@ -861,10 +951,27 @@ async function handleLogout() {
 
       <!-- Fullscreen Listening Orb Overlay -->
       <div class="listen" :class="{ on: listening }" aria-live="assertive">
-        <div class="orb" />
+        <button
+          type="button"
+          class="orb"
+          :style="{ transform: `scale(${orbScale})` }"
+          aria-label="Done speaking"
+          @click="finishMicAndAsk"
+        >
+          <svg class="i orb__mic"><use href="#mic" /></svg>
+        </button>
         <h2>Listening…</h2>
         <p class="heard">{{ heardText }}</p>
-        <button class="btn" type="button" @click="stopMic(false)">Cancel</button>
+        <div class="listen__actions">
+          <button class="btn pri" type="button" @click="finishMicAndAsk">
+            <svg class="i"><use href="#check" /></svg>
+            Done speaking
+          </button>
+          <button class="btn" type="button" @click="cancelMic">
+            <svg class="i"><use href="#x" /></svg>
+            Cancel
+          </button>
+        </div>
       </div>
 
       <!-- Top Toast Notification -->
@@ -874,7 +981,7 @@ async function handleLogout() {
 </template>
 
 <style scoped>
-.tala-shell {
+.agakai-shell {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -1042,14 +1149,40 @@ h1 {
   padding: 0;
 }
 
+.msg__speak {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: var(--hi);
+  color: var(--a2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.msg__speak .i {
+  width: 16px;
+  height: 16px;
+}
+
 .think {
   align-self: flex-start;
   display: flex;
+  align-items: center;
   gap: 6px;
   padding: 16px 18px;
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 24px;
+}
+
+.think__label {
+  margin-left: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .think i {
@@ -1522,14 +1655,16 @@ h1 {
     var(--a1) 120%
   );
   box-shadow: 0 0 80px var(--glow);
-  animation: o 1.8s ease-in-out infinite;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  transition: transform 0.12s ease-out;
 }
 
-@keyframes o {
-  50% {
-    transform: scale(1.15);
-    box-shadow: 0 0 120px var(--glow);
-  }
+.orb__mic {
+  width: 52px;
+  height: 52px;
+  stroke: #fff;
 }
 
 .listen h2 {
@@ -1539,13 +1674,22 @@ h1 {
 }
 
 .heard {
-  font-size: calc(var(--fs) * 1.1);
+  font-size: calc(var(--fs) * 1.02);
   min-height: 2.8em;
   color: var(--muted);
 }
 
+.listen__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 280px;
+}
+
 .listen .btn {
-  padding: 0 40px;
+  padding: 0 28px;
+  width: 100%;
 }
 
 /* Bottom Sheet */
@@ -1596,12 +1740,63 @@ h1 {
   background: var(--hi);
 }
 
+.sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sheet__head h3 {
+  margin: 0 4px;
+}
+
+.sheet__clear {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: calc(var(--fs) * 0.78);
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sheet__clear:active {
+  background: var(--hi);
+  color: var(--ink);
+}
+
 .sheet__notes {
   background: var(--solid);
   border: 1px solid var(--line);
   border-radius: 24px;
   padding: 14px 18px;
   margin-bottom: 12px;
+}
+
+.sheet__empty {
+  background: var(--solid);
+  border: 1px dashed var(--line);
+  border-radius: 24px;
+  padding: 18px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.sheet__empty-title {
+  font-size: calc(var(--fs) * 0.98);
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+
+.sheet__empty-sub {
+  font-size: calc(var(--fs) * 0.85);
+  line-height: 1.4;
+  color: var(--muted);
+  margin: 0;
 }
 
 .toast {

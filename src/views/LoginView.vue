@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { authService } from '@/services/authService';
 import { profileService } from '@/services/profileService';
+import { ttsPlayer } from '@/services/ttsPlayer';
 
 const router = useRouter();
 
@@ -21,7 +22,7 @@ function fail(message: string) {
   showError.value = true;
   setTimeout(() => {
     showError.value = false;
-  }, 2600);
+  }, 3200);
 }
 
 async function login() {
@@ -33,6 +34,7 @@ async function login() {
   }
 
   isLoading.value = true;
+  void ttsPlayer.stop();
   try {
     const user = await authService.login(id, pw);
     profileService.setCurrentUser(user.id);
@@ -43,53 +45,24 @@ async function login() {
     isLoading.value = false;
   }
 }
-
-async function quickDemoLogin() {
-  seniorId.value = 'SC-2024-0001';
-  password.value = 'demo';
-  await login();
-}
 </script>
 
 <template>
   <IonPage>
-    <div class="tala-login">
-      <!-- Top Header matching Tala -->
-      <header class="top">
-        <div class="logo">
-          <span class="mark">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z" />
-            </svg>
-          </span>
-          Tala
-        </div>
-        <div class="chip">
-          <svg class="i"><use href="#check" /></svg>
-          Senior Portal
-        </div>
-      </header>
-
+    <div class="agakai-login">
       <section class="login-main fade-in">
-        <div class="hello">
-          <div class="badge"><i />Senior Benefits Agent</div>
-          <h1>
-            Maayong adlaw,<br />
-            <span class="grad">Sign in to Tala.</span>
-          </h1>
-          <p class="sub">Enter your Senior ID to view your benefits and talk to Tala.</p>
-        </div>
+        <img class="login-logo" src="/assets/logo.png" alt="AgakAI" />
 
-        <form class="login-card" @submit.prevent="login">
+        <form class="login-card fade-up" @submit.prevent="login">
           <div class="field">
             <label class="field__label" for="senior-id">Senior ID</label>
             <div class="field__box">
-              <svg class="i field__icon"><use href="#award" /></svg>
+              <svg class="i field__icon"><use href="#user" /></svg>
               <input
                 id="senior-id"
                 v-model="seniorId"
                 type="text"
-                placeholder="e.g. SC-2024-0001"
+                placeholder="Enter your Senior ID"
                 autocomplete="username"
               />
             </div>
@@ -118,15 +91,7 @@ async function quickDemoLogin() {
 
           <button class="btn pri submit-btn" type="submit" :disabled="isLoading">
             <LoadingSpinner v-if="isLoading" :size="22" class="login-spinner" />
-            <template v-else>
-              Continue
-              <svg class="i"><use href="#go" /></svg>
-            </template>
-          </button>
-
-          <button class="btn demo-btn" type="button" :disabled="isLoading" @click="quickDemoLogin">
-            <svg class="i"><use href="#user" /></svg>
-            Quick Demo Sign In
+            <template v-else>Log in</template>
           </button>
         </form>
       </section>
@@ -137,7 +102,7 @@ async function quickDemoLogin() {
 </template>
 
 <style scoped>
-.tala-login {
+.agakai-login {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -145,122 +110,31 @@ async function quickDemoLogin() {
   color: var(--ink);
 }
 
-.top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px 4px;
-  flex-shrink: 0;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 800;
-  font-size: 22px;
-  letter-spacing: -0.02em;
-}
-
-.mark {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: var(--grad);
-  display: grid;
-  place-items: center;
-}
-
-.mark svg {
-  width: 22px;
-  height: 22px;
-  fill: #fff;
-}
-
-.chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 18px;
-  background: var(--glass);
-  border: 1px solid var(--line);
-  font-size: 14px;
-  font-weight: 600;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.chip .i {
-  width: 16px;
-  height: 16px;
-  color: #16a34a;
-}
-
 .login-main {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 16px 24px;
+  padding: 32px 20px calc(28px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  gap: 18px;
-}
-
-.hello {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.badge {
-  align-self: flex-start;
-  display: flex;
   align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 17px;
-  background: var(--hi);
-  border: 1px solid var(--line);
-  font-size: 14px;
-  font-weight: 600;
+  justify-content: center;
+  gap: 24px;
 }
 
-.badge i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 10px #22c55e;
-}
-
-h1 {
-  font-size: calc(var(--fs) * 1.75);
-  line-height: 1.08;
-  font-weight: 800;
-  letter-spacing: -0.035em;
-}
-
-.grad {
-  background: linear-gradient(110deg, var(--ink) 10%, var(--a2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.sub {
-  color: var(--muted);
-  font-size: calc(var(--fs) * 0.82);
-  line-height: 1.4;
+.login-logo {
+  display: block;
+  width: 240px;
+  max-width: 80%;
+  height: auto;
+  object-fit: contain;
 }
 
 .login-card {
+  width: 100%;
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 28px;
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -359,12 +233,7 @@ h1 {
 }
 
 .submit-btn {
-  margin-top: 4px;
-}
-
-.demo-btn {
-  color: var(--a2);
-  background: var(--hi);
+  margin-top: 6px;
 }
 
 .login-spinner {
@@ -375,19 +244,20 @@ h1 {
 .toast {
   position: absolute;
   left: 50%;
-  top: 72px;
+  top: 32px;
   transform: translateX(-50%);
   background: var(--danger);
   color: #fff;
   padding: 12px 20px;
   border-radius: 24px;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 15px;
   opacity: 0;
   transition: opacity 0.2s;
   pointer-events: none;
   z-index: 11;
-  white-space: nowrap;
+  max-width: 90%;
+  text-align: center;
 }
 
 .toast.on {
