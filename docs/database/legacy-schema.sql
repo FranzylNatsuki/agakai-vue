@@ -1,6 +1,9 @@
 -- =====================================================================
--- AGAKAI / TALA - SUPABASE DATABASE SCHEMA & SEED DATA
--- Copy and paste this directly into the Supabase SQL Editor and click "Run".
+-- AGAKAI - LEGACY SUPABASE SCHEMA & SEED REFERENCE
+-- Reference only; not a deployment migration.
+-- Contains plaintext passwords, permissive profile policies and destructive
+-- seed DELETE statements. Do not run against production or real senior records.
+-- Preserved from supabase_schema.txt; SQL behavior has not been changed.
 -- =====================================================================
 
 -- 1. EXTENSIONS

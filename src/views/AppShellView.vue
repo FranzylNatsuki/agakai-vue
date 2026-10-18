@@ -12,6 +12,7 @@ import { benefitService } from '@/services/benefitService';
 import { authService } from '@/services/authService';
 import { agakApi } from '@/services/agakaiApi';
 import { voiceRecorder } from '@/services/voiceRecorder';
+import { LiveTranscription } from '@/services/liveTranscription';
 import { ttsPlayer } from '@/services/ttsPlayer';
 
 type ChatItem =
@@ -81,6 +82,9 @@ const toastVisible = ref(false);
 let nextId = 1;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribeAmp: (() => void) | null = null;
+let unsubscribePcm: (() => void) | null = null;
+let unsubscribeTranscript: (() => void) | null = null;
+let liveTranscription: LiveTranscription | null = null;
 let unsubscribeSpeaking: (() => void) | null = null;
 let chatGen = 0;
 
@@ -182,6 +186,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   removeBackListener?.();
   unsubscribeAmp?.();
+  unsubscribePcm?.();
+  unsubscribeTranscript?.();
+  liveTranscription?.close();
   unsubscribeSpeaking?.();
   unsubscribeNotes?.();
   if (toastTimer) clearTimeout(toastTimer);
@@ -209,7 +216,9 @@ async function scrollToBottom() {
 
 function speak(text?: string, audioBytes?: Uint8Array) {
   if (!text && (!audioBytes || audioBytes.byteLength === 0)) return;
-  void ttsPlayer.play(audioBytes ?? null, text, language.value);
+  void ttsPlayer.play(audioBytes ?? null, text, language.value).catch(() => {
+    showToast('Voice unavailable — you can read the answer on screen');
+  });
 }
 
 function stopSpeaking() {
@@ -217,7 +226,7 @@ function stopSpeaking() {
   speaking.value = false;
 }
 
-// ---- Chat & Rich Cards (Whisper STT + Gemini Streaming + Neural TTS) ------
+// ---- Chat & Rich Cards (ElevenLabs speech + Gemini chat) -----------------
 
 async function ask(questionText: string) {
   const q = questionText.trim();
@@ -443,27 +452,65 @@ async function startMic() {
     soundDb.value = db;
   });
   listening.value = true;
-  heardText.value =
-    language.value === 'tagalog'
-      ? 'Magsalita lang po… pindutin ang Done kapag tapos na.'
-      : language.value === 'english'
-        ? 'Speak your question… tap Done when finished.'
+  heardText.value = language.value === 'tagalog'
+    ? 'Nagkokonekta sa live transcription…'
+    : language.value === 'english'
+      ? 'Connecting live transcription…'
+      : 'Nagkonektar sa live transcription…';
+  try {
+    const session = await LiveTranscription.connect(language.value);
+    if (!listening.value) { session.close(); return; }
+    liveTranscription = session;
+    unsubscribeTranscript = session.onTranscript((partial, committed) => {
+      heardText.value = [committed, partial].filter(Boolean).join(' ');
+    });
+    unsubscribePcm = voiceRecorder.onPcmChunk((chunk) => session.sendAudio(chunk));
+    if (!heardText.value) heardText.value = 'Listening…';
+  } catch {
+    showToast('Live captions unavailable — transcription runs when you tap Done');
+    heardText.value = language.value === 'english'
+      ? 'Speak your question… tap Done when finished.'
+      : language.value === 'tagalog'
+        ? 'Magsalita lang po… pindutin ang Done kapag tapos na.'
         : 'Istorya lang Lola/Lolo… pinduta ang Done kung humana ka.';
+  }
 }
 
 async function finishMicAndAsk() {
   if (!listening.value) return;
   unsubscribeAmp?.();
   unsubscribeAmp = null;
+  unsubscribePcm?.();
+  unsubscribePcm = null;
   soundDb.value = -60;
   listening.value = false;
 
+  const session = liveTranscription;
+  liveTranscription = null;
+  unsubscribeTranscript?.();
+  unsubscribeTranscript = null;
   const format = voiceRecorder.getFormat();
   const mimeType = voiceRecorder.getMimeType();
   const bytes = await voiceRecorder.stop();
   if (!bytes || bytes.byteLength === 0) {
     showToast("Didn't catch that — please try speaking again");
     return;
+  }
+
+  if (session) {
+    try {
+      const transcript = await session.commit();
+      session.close();
+      if (!transcript) {
+        showToast("Didn't catch that — please try again");
+        return;
+      }
+      await runConversation({ text: transcript });
+      return;
+    } catch {
+      session.close();
+      showToast('Live transcription ended — finishing transcription…');
+    }
   }
 
   await runConversation({
@@ -476,6 +523,12 @@ async function finishMicAndAsk() {
 async function cancelMic() {
   unsubscribeAmp?.();
   unsubscribeAmp = null;
+  unsubscribePcm?.();
+  unsubscribePcm = null;
+  unsubscribeTranscript?.();
+  unsubscribeTranscript = null;
+  liveTranscription?.close();
+  liveTranscription = null;
   soundDb.value = -60;
   listening.value = false;
   await voiceRecorder.cancel();
@@ -547,11 +600,7 @@ async function handleLogout() {
       <!-- Top Bar -->
       <header class="top">
         <button class="logo" type="button" title="Reset conversation" @click="resetToHome">
-          <span class="mark">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z" />
-            </svg>
-          </span>
+          <span class="mark"><img src="/assets/icon.png?v=repair2" alt="" /></span>
           AgakAI
         </button>
         <button class="chip" type="button" @click="openProfileSheet">
@@ -778,11 +827,7 @@ async function handleLogout() {
       <!-- Menu Popover -->
       <div class="pop" :class="{ on: menuOpen }" role="menu">
         <div class="logo">
-          <span class="mark">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z" />
-            </svg>
-          </span>
+          <span class="mark"><img src="/assets/icon.png?v=repair2" alt="" /></span>
           <span>
             AgakAI
             <small>Senior benefits helper</small>
@@ -1012,16 +1057,16 @@ async function handleLogout() {
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: var(--grad);
+  background: #fff;
   display: grid;
   place-items: center;
   flex-shrink: 0;
 }
 
-.mark svg {
-  width: 22px;
-  height: 22px;
-  fill: #fff;
+.mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .chip {

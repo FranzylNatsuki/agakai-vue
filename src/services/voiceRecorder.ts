@@ -32,7 +32,9 @@ let activeMimeType = 'audio/webm';
 
 let audioContext: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
+let processor: ScriptProcessorNode | null = null;
 let rafId: number | null = null;
+const pcmListeners = new Set<(base64: string) => void>();
 const amplitudeListeners = new Set<(db: number) => void>();
 
 function startMetering(stream: MediaStream) {
@@ -43,6 +45,33 @@ function startMetering(stream: MediaStream) {
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
     source.connect(analyser);
+
+    // Convert the existing microphone stream to mono PCM16 at 16 kHz for live Scribe.
+    const captureContext = audioContext;
+    processor = captureContext.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (event) => {
+      if (!pcmListeners.size) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const ratio = captureContext.sampleRate / 16000;
+      const outputLength = Math.floor(input.length / ratio);
+      const pcm = new Int16Array(outputLength);
+      for (let i = 0; i < outputLength; i++) {
+        const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] ?? 0));
+        pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
+      }
+      const bytes = new Uint8Array(pcm.buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      const chunk = btoa(binary);
+      for (const listener of pcmListeners) listener(chunk);
+    };
+    source.connect(processor);
+    const silentOutput = captureContext.createGain();
+    silentOutput.gain.value = 0;
+    processor.connect(silentOutput);
+    silentOutput.connect(captureContext.destination);
 
     const data = new Float32Array(analyser.fftSize);
     const tick = () => {
@@ -73,6 +102,11 @@ function cleanupResources() {
     rafId = null;
   }
   analyser = null;
+  if (processor) {
+    processor.onaudioprocess = null;
+    processor.disconnect();
+    processor = null;
+  }
   if (audioContext) {
     void audioContext.close().catch(() => {});
     audioContext = null;
@@ -188,6 +222,12 @@ export const voiceRecorder = {
       }
     }
     cleanupResources();
+  },
+
+  /** Subscribe to mono PCM16/16kHz frames, base64 encoded for Scribe. */
+  onPcmChunk(cb: (base64: string) => void): () => void {
+    pcmListeners.add(cb);
+    return () => { pcmListeners.delete(cb); };
   },
 
   /** Subscribe to mic level in dB (~ -60 quiet … -5 loud). Returns unsubscribe. */

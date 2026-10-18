@@ -1,7 +1,7 @@
 import { appConfig, isAiConfigured } from '@/services/appConfig';
+import { transcribeElevenLabs } from '@/services/elevenLabs';
 import { benefitService } from '@/services/benefitService';
 import { profileService } from '@/services/profileService';
-import { prefetchSentenceTts, splitIntoSpeechChunks } from '@/services/ttsPlayer';
 import { useSettings, type AppLanguage } from '@/composables/useSettings';
 import { mockAnswer } from '@/data/mock';
 
@@ -21,7 +21,6 @@ export interface ChatRequest {
 }
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const GROQ_TRANSCRIPTIONS_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const FALLBACK_GEMINI_MODELS = ['gemini-3-flash-preview', 'gemini-flash-latest'];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -29,15 +28,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function candidateModels(): string[] {
   const models = [appConfig.geminiModel, ...FALLBACK_GEMINI_MODELS].filter(Boolean);
   return [...new Set(models)];
-}
-
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 function normalizeAudioMime(format?: string, mimeType?: string): { mime: string; ext: string } {
@@ -54,10 +44,7 @@ function normalizeAudioMime(format?: string, mimeType?: string): { mime: string;
   return { mime: 'audio/webm', ext: 'webm' };
 }
 
-/**
- * Transcribes user audio via Groq Whisper (`whisper-large-v3`), and automatically
- * falls back to Gemini multimodal audio transcription if Groq is unavailable.
- */
+/** Transcribes completed recordings with ElevenLabs only. */
 export async function transcribeAudio(
   audioBytes: Uint8Array,
   language: AppLanguage,
@@ -65,92 +52,7 @@ export async function transcribeAudio(
   mimeType?: string,
 ): Promise<string> {
   const { mime, ext } = normalizeAudioMime(format, mimeType);
-
-  // 1. Primary: Groq Whisper API (`whisper-large-v3`)
-  if (appConfig.groqApiKey) {
-    try {
-      const form = new FormData();
-      const blob = new Blob(
-        [audioBytes.buffer.slice(audioBytes.byteOffset, audioBytes.byteOffset + audioBytes.byteLength) as ArrayBuffer],
-        { type: mime },
-      );
-      form.append('file', blob, `recording.${ext}`);
-      form.append('model', appConfig.whisperModel);
-      form.append(
-        'prompt',
-        language === 'bisaya'
-          ? 'Bisaya / Cebuano, Tagalog, or English question from a Filipino senior citizen about OSCA benefits, Social Pension, Senior ID, medical check-ups, or discounts.'
-          : language === 'tagalog'
-            ? 'Tagalog o English na tanong mula sa isang senior citizen tungkol sa OSCA benefits, Social Pension, Senior ID, o discount.'
-            : 'Question from a Filipino senior citizen about OSCA benefits, Social Pension, Senior Citizen ID, or discounts.',
-      );
-      if (language === 'tagalog') {
-        form.append('language', 'tl');
-      } else if (language === 'english') {
-        form.append('language', 'en');
-      }
-
-      const res = await fetch(GROQ_TRANSCRIPTIONS_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${appConfig.groqApiKey}`,
-        },
-        body: form,
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as { text?: string };
-        const text = (data.text ?? '').trim();
-        if (text) return text;
-      }
-    } catch {
-      // Fall through to Gemini audio transcription fallback
-    }
-  }
-
-  // 2. Fallback: Gemini multimodal audio transcription
-  if (appConfig.geminiApiKey) {
-    let lastError = 'Gemini STT failed';
-    for (const model of candidateModels()) {
-      const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: mime,
-                    data: uint8ToBase64(audioBytes),
-                  },
-                },
-                {
-                  text: 'Transcribe the spoken audio accurately in its original language (Bisaya/Cebuano, Tagalog, or English). Output ONLY the raw transcription text without quotes or commentary. If the audio is silent or unintelligible, output an empty string.',
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-          },
-        }),
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as {
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-        };
-        return (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
-      }
-      lastError = `Gemini STT (${model}) status ${res.status}`;
-    }
-    throw new Error(lastError);
-  }
-
-  throw new Error('No STT API key configured (set VITE_GROQ_API_KEY or VITE_GEMINI_API_KEY in .env).');
+  return transcribeElevenLabs(audioBytes, mime, ext, language);
 }
 
 function buildSystemInstruction(
@@ -240,7 +142,7 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
 }
 
 /**
- * Streaming chat client powered by Groq Whisper STT + Google Gemini API + Pipelined TTS.
+ * Gemini chat with ElevenLabs-only speech services.
  */
 export const agakApi = {
   async *chatStream(req: ChatRequest): AsyncGenerator<AgakEvent> {
@@ -258,8 +160,14 @@ export const agakApi = {
       }
 
       if (req.audioBytes) {
-        await sleep(800);
-        yield { type: 'transcript', question: 'Unsaon pag dawat sa Social Pension?' };
+        try {
+          const question = await transcribeAudio(req.audioBytes, currentLang, req.audioFormat, req.audioMimeType);
+          if (!question) throw new Error("I didn't catch that clearly. Please try again or type your question.");
+          yield { type: 'transcript', question };
+        } catch (error) {
+          yield { type: 'error', message: (error as Error).message };
+          return;
+        }
       }
       await sleep(700);
       let answer = '';
@@ -273,7 +181,7 @@ export const agakApi = {
     }
 
     try {
-      // 1. Speech-to-Text (Whisper via Groq API, or Gemini multimodal audio fallback)
+      // 1. Speech-to-Text (ElevenLabs Scribe)
       let questionText = (req.text ?? '').trim();
       if (req.audioBytes && req.audioBytes.byteLength > 0) {
         questionText = await transcribeAudio(
@@ -369,7 +277,6 @@ export const agakApi = {
       const decoder = new TextDecoder();
       let sseBuffer = '';
       let fullAnswer = '';
-      let prefetchedFirstChunk = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -397,15 +304,6 @@ export const agakApi = {
                 fullAnswer += part.text;
                 yield { type: 'delta', text: part.text };
 
-                // As soon as the first sentence is complete, start synthesizing its TTS
-                // in the background while Gemini is still streaming the rest of the text!
-                if (!prefetchedFirstChunk) {
-                  const chunks = splitIntoSpeechChunks(fullAnswer);
-                  if (chunks.length >= 2 && chunks[0]) {
-                    prefetchedFirstChunk = true;
-                    void prefetchSentenceTts(chunks[0]);
-                  }
-                }
               }
             }
           } catch {
@@ -425,7 +323,7 @@ export const agakApi = {
       // 4. Update rolling user_notes in Supabase in the background
       void updateRollingUserNotes(questionText, fullAnswer);
 
-      // 5. Yield done immediately (0ms wait — ttsPlayer pipelines sentence audio!)
+      // 5. The player streams ElevenLabs audio for the completed answer.
       yield { type: 'done', answer: fullAnswer };
     } catch (err) {
       yield {

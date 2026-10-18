@@ -51,7 +51,7 @@ async function login() {
   <IonPage>
     <div class="agakai-login">
       <section class="login-main fade-in">
-        <img class="login-logo" src="/assets/logo.png" alt="AgakAI" />
+        <img class="login-logo" src="/assets/logo.png?v=repair2" alt="AgakAI" />
 
         <form class="login-card fade-up" @submit.prevent="login">
           <div class="field">
