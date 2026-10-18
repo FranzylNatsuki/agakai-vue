@@ -6,11 +6,22 @@ import type { AppLanguage } from '@/composables/useSettings';
  */
 let currentAudio: HTMLAudioElement | null = null;
 let currentObjectUrl: string | null = null;
+let isCurrentlySpeaking = false;
+const speakingListeners = new Set<(speaking: boolean) => void>();
 
-function stripMarkdownForSpeech(markdown: string): string {
+function setSpeakingState(val: boolean) {
+  if (isCurrentlySpeaking === val) return;
+  isCurrentlySpeaking = val;
+  for (const cb of speakingListeners) {
+    cb(val);
+  }
+}
+
+export function stripMarkdownForSpeech(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`([^`]+)`/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
@@ -57,12 +68,21 @@ function detectAudioMimeType(bytes: Uint8Array): string {
 }
 
 export const ttsPlayer = {
+  /** Subscribe to speaking state changes (`true` while audio or speechSynthesis is active). */
+  onSpeakingChange(cb: (speaking: boolean) => void): () => void {
+    speakingListeners.add(cb);
+    cb(isCurrentlySpeaking);
+    return () => {
+      speakingListeners.delete(cb);
+    };
+  },
+
   /**
    * Play synthesized audio bytes if non-empty, otherwise fall back to
    * browser Web Speech API (`speechSynthesis`) when `fallbackText` is provided.
    */
   async play(
-    bytes: Uint8Array,
+    bytes: Uint8Array | null | undefined,
     fallbackText?: string,
     language?: AppLanguage,
   ): Promise<void> {
@@ -71,9 +91,13 @@ export const ttsPlayer = {
     if (bytes && bytes.byteLength > 0) {
       try {
         const mime = detectAudioMimeType(bytes);
-        const blob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: mime });
+        const blob = new Blob(
+          [bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer],
+          { type: mime },
+        );
         currentObjectUrl = URL.createObjectURL(blob);
         currentAudio = new Audio(currentObjectUrl);
+        setSpeakingState(true);
 
         await new Promise<void>((resolve, reject) => {
           if (!currentAudio) {
@@ -84,6 +108,7 @@ export const ttsPlayer = {
           currentAudio.onerror = () => reject(new Error('Audio playback failed'));
           currentAudio.play().catch(reject);
         });
+        setSpeakingState(false);
         return;
       } catch {
         await this.stop();
@@ -111,12 +136,19 @@ export const ttsPlayer = {
       utterance.lang = language === 'english' ? 'en-PH' : 'fil-PH';
     }
     // Slightly calmer pace for seniors
-    utterance.rate = 0.92;
+    utterance.rate = 0.9;
     utterance.pitch = 1.0;
 
+    setSpeakingState(true);
     await new Promise<void>((resolve) => {
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
+      utterance.onend = () => {
+        setSpeakingState(false);
+        resolve();
+      };
+      utterance.onerror = () => {
+        setSpeakingState(false);
+        resolve();
+      };
       window.speechSynthesis.speak(utterance);
     });
   },
@@ -138,5 +170,6 @@ export const ttsPlayer = {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+    setSpeakingState(false);
   },
 };

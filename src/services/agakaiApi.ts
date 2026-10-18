@@ -21,8 +21,14 @@ export interface ChatRequest {
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GROQ_TRANSCRIPTIONS_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+const FALLBACK_GEMINI_MODELS = ['gemini-3-flash-preview', 'gemini-flash-latest'];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function candidateModels(): string[] {
+  const models = [appConfig.geminiModel, ...FALLBACK_GEMINI_MODELS].filter(Boolean);
+  return [...new Set(models)];
+}
 
 function uint8ToBase64(bytes: Uint8Array): string {
   let binary = '';
@@ -93,10 +99,10 @@ function normalizeAudioMime(format?: string, mimeType?: string): { mime: string;
 }
 
 /**
- * Transcribes user audio via Groq Whisper (`whisper-large-v3`), or falls back
- * to Gemini multimodal audio transcription if `VITE_GROQ_API_KEY` is not set.
+ * Transcribes user audio via Groq Whisper (`whisper-large-v3`), and automatically
+ * falls back to Gemini multimodal audio transcription if Groq is unavailable.
  */
-async function transcribeAudio(
+export async function transcribeAudio(
   audioBytes: Uint8Array,
   language: AppLanguage,
   format?: string,
@@ -106,82 +112,86 @@ async function transcribeAudio(
 
   // 1. Primary: Groq Whisper API (`whisper-large-v3`)
   if (appConfig.groqApiKey) {
-    const form = new FormData();
-    const blob = new Blob(
-      [audioBytes.buffer.slice(audioBytes.byteOffset, audioBytes.byteOffset + audioBytes.byteLength) as ArrayBuffer],
-      { type: mime },
-    );
-    form.append('file', blob, `recording.${ext}`);
-    form.append('model', appConfig.whisperModel);
-    form.append(
-      'prompt',
-      language === 'bisaya'
-        ? 'Bisaya / Cebuano, Tagalog, or English question from a Filipino senior citizen about OSCA benefits, Social Pension, Senior ID, medical check-ups, or discounts.'
-        : language === 'tagalog'
-          ? 'Tagalog o English na tanong mula sa isang senior citizen tungkol sa OSCA benefits, Social Pension, Senior ID, o discount.'
-          : 'Question from a Filipino senior citizen about OSCA benefits, Social Pension, Senior Citizen ID, or discounts.',
-    );
-    if (language === 'tagalog') {
-      form.append('language', 'tl');
-    } else if (language === 'english') {
-      form.append('language', 'en');
+    try {
+      const form = new FormData();
+      const blob = new Blob(
+        [audioBytes.buffer.slice(audioBytes.byteOffset, audioBytes.byteOffset + audioBytes.byteLength) as ArrayBuffer],
+        { type: mime },
+      );
+      form.append('file', blob, `recording.${ext}`);
+      form.append('model', appConfig.whisperModel);
+      form.append(
+        'prompt',
+        language === 'bisaya'
+          ? 'Bisaya / Cebuano, Tagalog, or English question from a Filipino senior citizen about OSCA benefits, Social Pension, Senior ID, medical check-ups, or discounts.'
+          : language === 'tagalog'
+            ? 'Tagalog o English na tanong mula sa isang senior citizen tungkol sa OSCA benefits, Social Pension, Senior ID, o discount.'
+            : 'Question from a Filipino senior citizen about OSCA benefits, Social Pension, Senior Citizen ID, or discounts.',
+      );
+      if (language === 'tagalog') {
+        form.append('language', 'tl');
+      } else if (language === 'english') {
+        form.append('language', 'en');
+      }
+
+      const res = await fetch(GROQ_TRANSCRIPTIONS_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${appConfig.groqApiKey}`,
+        },
+        body: form,
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { text?: string };
+        const text = (data.text ?? '').trim();
+        if (text) return text;
+      }
+    } catch {
+      // Fall through to Gemini audio transcription fallback
     }
-
-    const res = await fetch(GROQ_TRANSCRIPTIONS_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${appConfig.groqApiKey}`,
-      },
-      body: form,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Whisper STT error (${res.status}): ${errText || res.statusText}`);
-    }
-
-    const data = (await res.json()) as { text?: string };
-    return (data.text ?? '').trim();
   }
 
   // 2. Fallback: Gemini multimodal audio transcription
   if (appConfig.geminiApiKey) {
-    const url = `${GEMINI_BASE_URL}/${appConfig.geminiModel}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  mimeType: mime,
-                  data: uint8ToBase64(audioBytes),
+    let lastError = 'Gemini STT failed';
+    for (const model of candidateModels()) {
+      const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: mime,
+                    data: uint8ToBase64(audioBytes),
+                  },
                 },
-              },
-              {
-                text: 'Transcribe the spoken audio accurately in its original language (Bisaya/Cebuano, Tagalog, or English). Output ONLY the raw transcription text without quotes or commentary. If the audio is silent or unintelligible, output an empty string.',
-              },
-            ],
+                {
+                  text: 'Transcribe the spoken audio accurately in its original language (Bisaya/Cebuano, Tagalog, or English). Output ONLY the raw transcription text without quotes or commentary. If the audio is silent or unintelligible, output an empty string.',
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-        },
-      }),
-    });
+        }),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Gemini STT error (${res.status}): ${errText || res.statusText}`);
+      if (res.ok) {
+        const data = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        return (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+      }
+      lastError = `Gemini STT (${model}) status ${res.status}`;
     }
-
-    const data = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    return (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+    throw new Error(lastError);
   }
 
   throw new Error('No STT API key configured (set VITE_GROQ_API_KEY or VITE_GEMINI_API_KEY in .env).');
@@ -201,10 +211,10 @@ function buildSystemInstruction(
         : 'Respond primarily in clear, warm, easy-to-understand Philippine English, unless the senior explicitly asks in Bisaya or Tagalog.';
 
   return [
-    'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
+    'You are Tala (AgakAI), a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
     langInstruction,
     'Formatting & tone guidelines:',
-    '- Keep answers concise, clear, and easy for an elderly person to read and listen to.',
+    '- Keep answers concise (2 to 4 short sentences or a brief bulleted list) so it is easy for an elderly person to read and listen to.',
     '- Use short numbered steps or bullet points when explaining procedures (like claiming Social Pension, applying for a Senior ID, or getting medical check-ups).',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
     user ? `\nSenior Citizen Profile:\n${JSON.stringify(user, null, 2)}` : '',
@@ -219,11 +229,12 @@ function buildSystemInstruction(
  * Generates TTS audio bytes via Gemini TTS (`gemini-2.5-flash-preview-tts`).
  * Returns null if unavailable so `ttsPlayer` can fall back to browser Web Speech API.
  */
-async function synthesizeGeminiTts(text: string): Promise<Uint8Array | null> {
+export async function synthesizeGeminiTts(text: string): Promise<Uint8Array | null> {
   if (!appConfig.geminiApiKey || !text.trim()) return null;
 
   const cleanText = text
     .replace(/[*_#>`~]/g, '')
+    .replace(/<[^>]+>/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .trim();
   if (!cleanText) return null;
@@ -285,33 +296,36 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
   if (!appConfig.geminiApiKey) return;
   try {
     const existing = (await profileService.loadUserNotes()) ?? '';
-    const url = `${GEMINI_BASE_URL}/${appConfig.geminiModel}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `Update the concise markdown support notes for this senior citizen based on their latest conversation.\n\nExisting notes:\n${existing || '(none)'}\n\nLatest Question: ${question}\nLatest Answer: ${answer}\n\nKeep the sections **Likes** and **Concerns** (or **Recent Topics**), in short bullet points. Output ONLY the markdown notes.`,
-              },
-            ],
+    for (const model of candidateModels()) {
+      const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `Update the concise markdown support notes for this senior citizen based on their latest conversation.\n\nExisting notes:\n${existing || '(none)'}\n\nLatest Question: ${question}\nLatest Answer: ${answer}\n\nKeep the sections **Likes** and **Concerns** (or **Recent Topics**), in short bullet points. Output ONLY the markdown notes.`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
           },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-        },
-      }),
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const updated = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
-    if (updated) {
-      await profileService.saveUserNotes(updated);
+        }),
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      const updated = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+      if (updated) {
+        await profileService.saveUserNotes(updated);
+      }
+      break;
     }
   } catch {
     // Non-critical background task
@@ -395,40 +409,52 @@ export const agakApi = {
         userNotes,
       );
 
-      // 3. Stream answer from Gemini API (`streamGenerateContent?alt=sse`)
-      const streamUrl = `${GEMINI_BASE_URL}/${appConfig.geminiModel}:streamGenerateContent?alt=sse&key=${encodeURIComponent(appConfig.geminiApiKey)}`;
-      const response = await fetch(streamUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemInstruction }],
-          },
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: questionText }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.5,
-            maxOutputTokens: 1024,
-          },
-        }),
-      });
+      // 3. Stream answer from Gemini API (`streamGenerateContent?alt=sse`) with model fallback
+      let response: Response | null = null;
+      let lastStatus = 500;
+      let lastErrBody = '';
 
-      if (!response.ok || !response.body) {
-        const errBody = await response.text().catch(() => '');
-        let detail = response.statusText;
+      for (const model of candidateModels()) {
+        const streamUrl = `${GEMINI_BASE_URL}/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(appConfig.geminiApiKey)}`;
+        const res = await fetch(streamUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: questionText }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.5,
+              maxOutputTokens: 1024,
+            },
+          }),
+        });
+
+        if (res.ok && res.body) {
+          response = res;
+          break;
+        }
+        lastStatus = res.status;
+        lastErrBody = await res.text().catch(() => '');
+      }
+
+      if (!response || !response.body) {
+        let detail = `HTTP ${lastStatus}`;
         try {
-          const parsed = JSON.parse(errBody) as { error?: { message?: string } };
+          const parsed = JSON.parse(lastErrBody) as { error?: { message?: string } };
           if (parsed.error?.message) detail = parsed.error.message;
         } catch {
-          if (errBody) detail = errBody;
+          if (lastErrBody) detail = lastErrBody;
         }
         yield {
           type: 'error',
-          message: `Gemini API error (${response.status}): ${detail}`,
+          message: `Gemini API error (${lastStatus}): ${detail}`,
         };
         return;
       }
@@ -474,7 +500,7 @@ export const agakApi = {
       if (!fullAnswer.trim()) {
         yield {
           type: 'error',
-          message: 'AgakAI could not generate an answer right now. Please try again.',
+          message: 'Tala could not generate an answer right now. Please try again.',
         };
         return;
       }
@@ -492,7 +518,7 @@ export const agakApi = {
     } catch (err) {
       yield {
         type: 'error',
-        message: (err as Error).message || 'Something went wrong while contacting AgakAI.',
+        message: (err as Error).message || 'Something went wrong while contacting Tala.',
       };
     }
   },

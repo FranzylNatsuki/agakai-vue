@@ -9,7 +9,7 @@ export const appConfig = {
   geminiApiKey: ((import.meta.env.VITE_GEMINI_API_KEY as string | undefined) ?? '').trim(),
   geminiModel:
     ((import.meta.env.VITE_GEMINI_MODEL as string | undefined) ?? '').trim() ||
-    'gemini-2.5-flash',
+    'gemini-3-flash-preview',
   geminiTtsModel:
     ((import.meta.env.VITE_GEMINI_TTS_MODEL as string | undefined) ?? '').trim() ||
     'gemini-2.5-flash-preview-tts',

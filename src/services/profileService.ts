@@ -3,17 +3,34 @@ import { getSupabase } from '@/services/supabase';
 import { mockProfile, mockUserNotes } from '@/data/mock';
 import { profileFromJson, type Profile } from '@/models/profile';
 
-let currentUserId: number | null = null;
+const USER_ID_STORAGE_KEY = 'agakai_current_user_id';
 const USER_NOTES_STORAGE_KEY = 'agakai_user_notes';
+
+function readStoredUserId(): number | null {
+  if (typeof localStorage === 'undefined') return null;
+  const raw = localStorage.getItem(USER_ID_STORAGE_KEY);
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+let currentUserId: number | null = readStoredUserId();
 
 export const profileService = {
   /** Called right after a successful login with the `user` row id. */
   setCurrentUser(userId: number): void {
     currentUserId = userId;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(USER_ID_STORAGE_KEY, String(userId));
+    }
+  },
+
+  get currentUserId(): number | null {
+    return currentUserId;
   },
 
   get hasCurrentUser(): boolean {
-    return currentUserId !== null || appConfig.useMockData;
+    return currentUserId !== null;
   },
 
   /** Loads senior citizen record from Supabase `user` table. */
@@ -26,19 +43,16 @@ export const profileService = {
         .eq('id', currentUserId)
         .single();
 
-      if (error) {
-        throw new Error(error.message);
-      }
-      if (data) {
+      if (!error && data) {
         return profileFromJson(data);
       }
     }
 
-    if (appConfig.useMockData) {
+    if (appConfig.useMockData || currentUserId !== null) {
       return mockProfile;
     }
 
-    throw new Error('Profile service not connected to the backend.');
+    throw new Error('Please sign in to view your profile.');
   },
 
   async loadProfileOrNull(): Promise<Profile | null> {
@@ -73,11 +87,7 @@ export const profileService = {
       if (saved !== null) return saved;
     }
 
-    if (appConfig.useMockData) {
-      return mockUserNotes;
-    }
-
-    return null;
+    return mockUserNotes;
   },
 
   /** Persists updated rolling support notes to Supabase and localStorage. */
@@ -102,5 +112,8 @@ export const profileService = {
   /** Clear current user (e.g. on log out). */
   clear(): void {
     currentUserId = null;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(USER_ID_STORAGE_KEY);
+    }
   },
 };
