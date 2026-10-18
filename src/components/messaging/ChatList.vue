@@ -100,7 +100,7 @@ const emit = defineEmits<{
 .chat-list__empty {
   text-align: center;
   padding: 40px 20px;
-  color: #4b5563;
+  color: #000000;
 }
 
 .chat-list__empty-icon {
@@ -131,7 +131,7 @@ const emit = defineEmits<{
   line-height: 1.5;
   max-width: 300px;
   margin: 0 auto;
-  color: #374151;
+  color: #000000;
 }
 
 .chat-list__items {
@@ -200,7 +200,7 @@ const emit = defineEmits<{
 
 .chat-item__time {
   font-size: calc(var(--fs, 20px) * 0.72);
-  color: #4b5563;
+  color: #000000;
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -215,7 +215,7 @@ const emit = defineEmits<{
 .chat-item__preview {
   font-size: calc(var(--fs, 20px) * 0.85);
   line-height: 1.35;
-  color: #374151;
+  color: #000000;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -224,7 +224,7 @@ const emit = defineEmits<{
 .chat-item__chevron {
   width: 18px;
   height: 18px;
-  color: #64748b;
+  color: #000000;
   flex-shrink: 0;
 }
 

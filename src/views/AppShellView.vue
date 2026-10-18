@@ -1182,7 +1182,7 @@ h1 {
 }
 
 .sub {
-  color: var(--muted);
+  color: #000000;
   font-size: calc(var(--fs) * 0.85);
   line-height: 1.4;
   margin-bottom: 4px;
@@ -1217,7 +1217,7 @@ h1 {
 
 .sugg .go {
   margin-left: auto;
-  color: #4b5563;
+  color: #000000;
   width: 22px;
   height: 22px;
 }
@@ -1286,7 +1286,7 @@ h1 {
   margin-left: 6px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--muted);
+  color: #000000;
 }
 
 .think i {
@@ -1330,7 +1330,7 @@ h1 {
   align-items: center;
   gap: 8px;
   padding: 8px 10px 0;
-  color: #4b5563;
+  color: #000000;
   font-size: calc(var(--fs) * 0.78);
   font-weight: 600;
 }
@@ -1368,7 +1368,7 @@ h1 {
 }
 
 .place span {
-  color: #4b5563;
+  color: #000000;
   font-size: calc(var(--fs) * 0.82);
 }
 
@@ -1414,7 +1414,7 @@ h1 {
 
 .li small {
   display: block;
-  color: #4b5563;
+  color: #000000;
   font-size: 13px;
 }
 
@@ -1425,7 +1425,7 @@ h1 {
 
 .li small {
   display: block;
-  color: var(--muted);
+  color: #000000;
   font-size: calc(var(--fs) * 0.78);
   font-weight: 400;
 }
@@ -1511,7 +1511,7 @@ h1 {
   gap: 5px;
   font-weight: 600;
   font-size: 14px;
-  color: #4b5563;
+  color: #000000;
   width: 76px;
 }
 
@@ -1591,7 +1591,8 @@ h1 {
 
 
 .typebar input::placeholder {
-  color: var(--muted);
+  color: #000000;
+  opacity: 0.6;
 }
 
 .typebar .x {
@@ -1667,7 +1668,7 @@ h1 {
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: var(--muted);
+  color: #000000;
   letter-spacing: 0;
 }
 
@@ -1685,7 +1686,7 @@ h1 {
   height: 48px;
   border-radius: 15px;
   font-weight: 700;
-  color: var(--muted);
+  color: #000000;
 }
 
 .seg button.on {
@@ -1698,7 +1699,7 @@ h1 {
 .plabel {
   font-size: 14px;
   font-weight: 600;
-  color: var(--muted);
+  color: #000000;
   padding: 0 4px;
 }
 
@@ -1794,7 +1795,7 @@ h1 {
 .heard {
   font-size: calc(var(--fs) * 1.02);
   min-height: 2.8em;
-  color: var(--muted);
+  color: #000000;
 }
 
 .listen__actions {
@@ -1898,7 +1899,7 @@ h1 {
   padding: 6px 12px;
   font-size: calc(var(--fs) * 0.78);
   font-weight: 700;
-  color: var(--muted);
+  color: #000000;
   cursor: pointer;
 }
 
@@ -1941,7 +1942,7 @@ h1 {
 .sheet__empty-sub {
   font-size: calc(var(--fs) * 0.85);
   line-height: 1.4;
-  color: var(--muted);
+  color: #000000;
   margin: 0;
 }
 

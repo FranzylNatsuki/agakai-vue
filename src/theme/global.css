@@ -4,28 +4,54 @@
   margin: 0;
 }
 
+:root,
 html,
 body,
 #app {
   height: 100%;
+  color-scheme: light !important;
 }
 
 body {
   background: var(--stage);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  color: var(--ink);
+  color: #000000;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Ensure font color is black whenever background is white */
+/* Maintain identical text color design when user is on a dark theme browser */
+@media (prefers-color-scheme: dark) {
+  :root,
+  html,
+  body {
+    color-scheme: light !important;
+    color: #000000 !important;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    color-scheme: light !important;
+  }
+}
+
+/* Ensure font color is black whenever background is white or light */
 .bg-white,
+.bg-white *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *),
 [style*="background: #fff"],
+[style*="background: #fff"] *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *),
 [style*="background:#fff"],
+[style*="background:#fff"] *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *),
 [style*="background: #ffffff"],
+[style*="background: #ffffff"] *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *),
 [style*="background:#ffffff"],
+[style*="background:#ffffff"] *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *),
 [style*="background: white"],
-[style*="background:white"] {
+[style*="background: white"] *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *),
+[style*="background:white"],
+[style*="background:white"] *:not(.btn.pri):not(.btn.pri *):not(.composer-btn--send):not(.composer-btn--send *):not(.voice-banner__done):not(.thread-header__avatar):not(.chat-item__avatar):not(.ava):not(.msg-bubble--me):not(.msg-bubble--me *) {
   color: #000000;
 }
 

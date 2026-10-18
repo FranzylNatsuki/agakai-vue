@@ -46,7 +46,7 @@ const html = computed(() =>
   margin: 0.4em 0 0;
   padding-left: 12px;
   border-left: 3px solid var(--a2);
-  color: var(--muted);
+  color: #000000;
   font-style: italic;
 }
 
@@ -58,6 +58,6 @@ const html = computed(() =>
 .md--notes {
   font-size: calc(var(--fs) * 0.85);
   line-height: 1.45;
-  color: var(--muted);
+  color: #000000;
 }
 </style>

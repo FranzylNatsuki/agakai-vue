@@ -3,7 +3,7 @@
   --stage: #e9eaf0;
   --bg: #ffffff;
   --ink: #000000;
-  --muted: #4b5563;
+  --muted: #000000;
   --line: rgba(15, 23, 42, 0.12);
   --glass: rgba(255, 255, 255, 0.85);
   --solid: #ffffff;
@@ -49,43 +49,49 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --stage: #03050d;
-    --bg: #070c1c;
-    --ink: #f5f6fa;
-    --muted: #a3acc2;
-    --line: rgba(255, 255, 255, 0.13);
-    --glass: rgba(255, 255, 255, 0.06);
-    --solid: #111a33;
-    --hi: rgba(90, 130, 240, 0.16);
-    --a1: #2a4fc4;
-    --a2: #4a78e8;
-    --a3: #4a78e8;
-    --glow: rgba(74, 120, 232, 0.4);
-    --g1: rgba(42, 79, 196, 0.38);
+  :root {
+    --stage: #e9eaf0;
+    --bg: #ffffff;
+    --ink: #000000;
+    --muted: #000000;
+    --line: rgba(15, 23, 42, 0.12);
+    --glass: rgba(255, 255, 255, 0.85);
+    --solid: #ffffff;
+    --hi: rgba(30, 64, 175, 0.08);
+    --a1: #1b3a9e;
+    --a2: #2f5fd8;
+    --a3: #2f5fd8;
+    --glow: rgba(30, 64, 175, 0.3);
+    --g1: rgba(47, 95, 216, 0.2);
     --g2: transparent;
-    --grid: rgba(255, 255, 255, 0.06);
-    --danger: #ff8a80;
-    color-scheme: dark;
+    --grid: rgba(15, 23, 42, 0.06);
+    --danger: #b3261e;
+    color-scheme: light;
+
+    --ion-background-color: var(--bg);
+    --ion-text-color: var(--ink);
   }
 }
 
 :root[data-theme='dark'] {
-  --stage: #03050d;
-  --bg: #070c1c;
-  --ink: #f5f6fa;
-  --muted: #a3acc2;
-  --line: rgba(255, 255, 255, 0.13);
-  --glass: rgba(255, 255, 255, 0.06);
-  --solid: #111a33;
-  --hi: rgba(90, 130, 240, 0.16);
-  --a1: #2a4fc4;
-  --a2: #4a78e8;
-  --a3: #4a78e8;
-  --glow: rgba(74, 120, 232, 0.4);
-  --g1: rgba(42, 79, 196, 0.38);
+  --stage: #e9eaf0;
+  --bg: #ffffff;
+  --ink: #000000;
+  --muted: #000000;
+  --line: rgba(15, 23, 42, 0.12);
+  --glass: rgba(255, 255, 255, 0.85);
+  --solid: #ffffff;
+  --hi: rgba(30, 64, 175, 0.08);
+  --a1: #1b3a9e;
+  --a2: #2f5fd8;
+  --a3: #2f5fd8;
+  --glow: rgba(30, 64, 175, 0.3);
+  --g1: rgba(47, 95, 216, 0.2);
   --g2: transparent;
-  --grid: rgba(255, 255, 255, 0.06);
-  --danger: #ff8a80;
-  color-scheme: dark;
+  --grid: rgba(15, 23, 42, 0.06);
+  --danger: #b3261e;
+  color-scheme: light;
+
+  --ion-background-color: var(--bg);
+  --ion-text-color: var(--ink);
 }

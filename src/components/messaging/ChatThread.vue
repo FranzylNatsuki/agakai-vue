@@ -316,7 +316,7 @@ watch(
 .thread-header__sub {
   font-size: calc(var(--fs, 20px) * 0.75);
   font-weight: 600;
-  color: #4b5563;
+  color: #000000;
   display: block;
 }
 
@@ -334,7 +334,7 @@ watch(
 .thread-messages__loading,
 .thread-messages__empty {
   text-align: center;
-  color: #4b5563;
+  color: #000000;
   padding: 40px 16px;
   font-size: calc(var(--fs, 20px) * 0.85);
   line-height: 1.5;
@@ -409,7 +409,7 @@ watch(
 
 .msg-bubble__time {
   font-size: calc(var(--fs, 20px) * 0.72);
-  color: #4b5563;
+  color: #000000;
   font-weight: 600;
 }
 
@@ -506,7 +506,8 @@ watch(
 }
 
 .composer-input::placeholder {
-  color: #6b7280;
+  color: #000000;
+  opacity: 0.6;
 }
 
 .composer-input:focus {

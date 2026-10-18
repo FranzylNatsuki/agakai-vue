@@ -31,6 +31,7 @@ const emit = defineEmits<{ (e: 'close'): void }>();
   max-width: 430px;
   height: 62%;
   background: #fff;
+  color: #000000;
   border-radius: 24px 24px 0 0;
   padding: 20px 24px calc(24px + var(--ion-safe-area-bottom, 0px));
   box-sizing: border-box;

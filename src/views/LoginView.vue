@@ -159,7 +159,7 @@ function onPinInput(event: Event) {
 .field__label {
   font-size: 15px;
   font-weight: 700;
-  color: var(--muted);
+  color: #000000;
   padding: 0 4px;
 }
 
@@ -194,12 +194,13 @@ function onPinInput(event: Event) {
   font: inherit;
   font-size: var(--fs);
   font-weight: 600;
-  color: var(--ink);
+  color: #000000;
   outline: none;
 }
 
 .field__box input::placeholder {
-  color: var(--muted);
+  color: #000000;
+  opacity: 0.6;
   font-weight: 400;
 }
 
@@ -210,7 +211,7 @@ function onPinInput(event: Event) {
   display: grid;
   place-items: center;
   font-size: 22px;
-  color: var(--muted);
+  color: #000000;
 }
 
 .btn {

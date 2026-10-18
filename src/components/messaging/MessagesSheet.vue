@@ -161,7 +161,7 @@ watch(
 .messages-sheet__subtitle {
   font-size: calc(var(--fs, 20px) * 0.82);
   line-height: 1.45;
-  color: #374151;
+  color: #000000;
   margin: 6px 0 0;
 }
 
