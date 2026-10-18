@@ -56,7 +56,7 @@ create unique index if not exists idx_user_senior_id_unique on public."user" (se
 
 -- 3. TABLE: benefit (OSCA & Local Government Senior Benefits)
 create table if not exists public.benefit (
-  id text primary key,
+  id uuid default gen_random_uuid() primary key,
   title text not null default '',
   date text,
   location text,
@@ -114,7 +114,7 @@ create policy "Allow anon read benefit"
   to anon, authenticated
   using (true);
 
--- 5. SEED DATA (Clean delete + insert avoids any ON CONFLICT constraint errors)
+-- 5. SEED DATA
 
 -- Demo senior citizen: Maria Santos (Senior ID: SC-2024-0001, Password: demo)
 delete from public."user" where senior_id = 'SC-2024-0001';
@@ -149,9 +149,15 @@ values (
 - Needs help understanding pension claims'
 );
 
--- Sample OSCA benefits
-delete from public.benefit where id in ('1', '2', '3', '4');
+-- Delete sample benefits by title to avoid type-casting errors on id (UUID vs TEXT)
+delete from public.benefit where title in (
+  'Social Pension',
+  'Free Medical Check-up',
+  'Senior Discount',
+  'Free Transport Fare'
+);
 
+-- Sample OSCA benefits with valid UUID format (compatible with both uuid and text columns)
 insert into public.benefit (
   id,
   title,
@@ -165,7 +171,7 @@ insert into public.benefit (
 )
 values
   (
-    '1',
+    'a0000000-0000-0000-0000-000000000001',
     'Social Pension',
     '2026-01-15',
     'National / All LGUs',
@@ -176,7 +182,7 @@ values
     'National / All LGUs'
   ),
   (
-    '2',
+    'a0000000-0000-0000-0000-000000000002',
     'Free Medical Check-up',
     '2026-02-02',
     'Lapu-Lapu City',
@@ -187,7 +193,7 @@ values
     'Lapu-Lapu City'
   ),
   (
-    '3',
+    'a0000000-0000-0000-0000-000000000003',
     'Senior Discount',
     null,
     'National / All LGUs',
@@ -198,7 +204,7 @@ values
     'National / All LGUs'
   ),
   (
-    '4',
+    'a0000000-0000-0000-0000-000000000004',
     'Free Transport Fare',
     '2026-03-01',
     'Lapu-Lapu City',
