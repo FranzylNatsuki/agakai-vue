@@ -8,7 +8,6 @@ import type { Profile } from '@/models/profile';
 export const mockProfile: Profile = {
   id: 1,
   name: 'Maria Santos',
-  email: 'maria@example.com',
   seniorId: 'SC-2024-0001',
   mobileNo: '0917 123 4567',
   age: 68,

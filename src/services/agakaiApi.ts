@@ -2,6 +2,7 @@ import { appConfig, isAiConfigured } from '@/services/appConfig';
 import { transcribeElevenLabs } from '@/services/elevenLabs';
 import { benefitService } from '@/services/benefitService';
 import { profileService } from '@/services/profileService';
+import { parseMemory } from '@/services/memory';
 import { useSettings, type AppLanguage } from '@/composables/useSettings';
 import { mockAnswer } from '@/data/mock';
 
@@ -85,12 +86,15 @@ function buildSystemInstruction(
 }
 
 /**
- * Updates rolling support notes (`user_notes`) in Supabase via Gemini after each exchange.
+ * Updates the senior's rolling memory: a short plain-language summary plus notes.
+ * Runs in the background after each exchange.
  */
 async function updateRollingUserNotes(question: string, answer: string): Promise<void> {
   if (!appConfig.geminiApiKey) return;
   try {
-    const existing = ((await profileService.loadUserNotes()) ?? '').trim();
+    const memory = await profileService.loadMemory();
+    const existing = (memory.notes ?? '').trim();
+    const existingSummary = (memory.summary ?? '').trim();
     for (const model of candidateModels()) {
       const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(appConfig.geminiApiKey)}`;
       const res = await fetch(url, {
@@ -103,19 +107,26 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
               parts: [
                 {
                   text: [
-                    'You maintain the rolling memory notes (`user_notes`) about a Filipino senior citizen for AgakAI.',
-                    `Existing memory notes:\n${existing || '(Empty — no memory recorded yet)'}`,
+                    'You maintain the memory AgakAI keeps about a Filipino senior citizen.',
+                    `Existing summary:\n${existingSummary || '(None yet)'}`,
+                    `Existing notes:\n${existing || '(None yet)'}`,
                     `\nNew message from Senior: "${question}"`,
                     `AgakAI response: "${answer}"`,
-                    '\nUpdate the markdown notes to remember what matters about this senior (their interests/likes, health or benefit needs, questions they asked about, and personal details they shared).',
-                    'Format strictly as concise markdown with two headings:',
+                    '',
+                    'Return JSON with two keys: "summary" and "notes".',
+                    '',
+                    'summary: one or two short sentences addressed to the senior as "you", in their language (Bisaya, Tagalog, or English as used), explaining what Agak remembers about them and how they seem to be feeling lately.',
+                    'Be warm and plain. No clinical labels, no diagnoses, no advice. At most 240 characters.',
+                    'If there is nothing meaningful yet, return an empty string.',
+                    '',
+                    'notes: concise markdown, exactly these headings:',
                     '**Likes & Interests**',
-                    '- (bullet points, or "None shared yet" if none)',
+                    '- (bullets, or "None shared yet")',
                     '',
                     '**Concerns & Recent Topics**',
-                    '- (bullet points summarizing what they asked about or need help with)',
+                    '- (bullets summarizing what they asked about or need help with)',
                     '',
-                    'Output ONLY the markdown text, no code fences or extra commentary.',
+                    'Merge with the existing memory; keep it short. Output JSON only.',
                   ].join('\n'),
                 },
               ],
@@ -123,6 +134,12 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
           ],
           generationConfig: {
             temperature: 0.2,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: { summary: { type: 'STRING' }, notes: { type: 'STRING' } },
+              required: ['summary', 'notes'],
+            },
           },
         }),
       });
@@ -130,9 +147,10 @@ async function updateRollingUserNotes(question: string, answer: string): Promise
       const data = (await res.json()) as {
         candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
       };
-      const updated = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
-      if (updated) {
-        await profileService.saveUserNotes(updated);
+      const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
+      const parsed = parseMemory(raw);
+      if (parsed) {
+        await profileService.saveMemory(parsed.summary, parsed.notes || existing);
       }
       break;
     }

@@ -61,12 +61,14 @@ const { language, textSizeIndex, setLanguage, setTextSizeIndex } = useSettings()
 const profile = ref<Profile | null>(null);
 const benefits = ref<Benefit[]>([]);
 const userNotes = ref<string | null>(null);
+const userSummary = ref('');
 
 const mainEl = ref<HTMLElement | null>(null);
 const txtInput = ref<HTMLInputElement | null>(null);
 
 const messages = ref<ChatItem[]>([]);
 const showHello = computed(() => messages.value.length === 0);
+const hasMemory = computed(() => !!userSummary.value || !!(userNotes.value ?? '').trim());
 
 const typingMode = ref(false);
 const draftText = ref('');
@@ -161,7 +163,9 @@ onMounted(async () => {
   });
   profile.value = await profileService.loadProfileOrNull();
   benefits.value = await benefitService.loadRelevantBenefits(profile.value?.address);
-  userNotes.value = await profileService.loadUserNotes();
+  const memory = await profileService.loadMemory();
+  userSummary.value = memory.summary;
+  userNotes.value = memory.notes;
 });
 
 // Android hardware back button handling
@@ -373,9 +377,11 @@ async function runConversation(req: {
         await scrollToBottom();
         speak(accumulated, combinedAudio);
 
-        // Refresh rolling user_notes after Gemini updates them
+        // Refresh the memory summary and notes after Gemini updates them
         setTimeout(async () => {
-          userNotes.value = await profileService.loadUserNotes();
+          const memory = await profileService.loadMemory();
+          userSummary.value = memory.summary;
+          userNotes.value = memory.notes;
         }, 2000);
       } else if (event.type === 'error') {
         removeItem(thinkId);
@@ -556,11 +562,15 @@ function openBenefitsSheet() {
 async function openAboutSheet() {
   menuOpen.value = false;
   activeSheet.value = 'about';
-  userNotes.value = await profileService.loadUserNotes();
+  const memory = await profileService.loadMemory();
+  userSummary.value = memory.summary;
+  userNotes.value = memory.notes;
 }
 
 async function clearMemory() {
-  await profileService.saveUserNotes('');
+  await profileService.saveMemory('', '');
+  userSummary.value = '';
+  userNotes.value = '';
   showToast('Memory cleared');
 }
 
@@ -928,7 +938,7 @@ async function handleLogout() {
           <div class="sheet__head">
             <h3>What I know about you</h3>
             <button
-              v-if="userNotes && userNotes.trim()"
+              v-if="hasMemory"
               class="sheet__clear"
               type="button"
               @click="clearMemory"
@@ -946,10 +956,11 @@ async function handleLogout() {
               <span class="tag">LGU</span>
             </div>
           </div>
-          <div v-if="userNotes && userNotes.trim()" class="sheet__notes">
-            <MarkdownContent :source="userNotes" variant="notes" />
+          <p v-if="userSummary" class="sheet__summary">{{ userSummary }}</p>
+          <div v-if="hasMemory" class="sheet__notes">
+            <MarkdownContent :source="userNotes ?? ''" variant="notes" />
           </div>
-          <div v-else class="sheet__empty">
+          <div v-if="!hasMemory" class="sheet__empty">
             <svg class="i"><use href="#heart" /></svg>
             <p>
               <b>No memory saved yet.</b><br />
@@ -983,7 +994,6 @@ async function handleLogout() {
               <svg class="i"><use href="#phone" /></svg>
               <span>
                 {{ profile.mobileNo }}
-                <small>{{ profile.email }}</small>
               </span>
             </div>
           </div>
@@ -1819,6 +1829,13 @@ h1 {
   border-radius: 24px;
   padding: 14px 18px;
   margin-bottom: 12px;
+}
+
+.sheet__summary {
+  margin: 0 4px 12px;
+  font-size: calc(var(--fs) * 0.95);
+  line-height: 1.45;
+  color: var(--ink);
 }
 
 .sheet__empty {

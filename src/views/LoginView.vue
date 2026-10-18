@@ -5,13 +5,12 @@ import { eyeOffOutline, eyeOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import { authService } from '@/services/authService';
-import { profileService } from '@/services/profileService';
 import { ttsPlayer } from '@/services/ttsPlayer';
 
 const router = useRouter();
 
 const seniorId = ref('');
-const password = ref('');
+const pin = ref('');
 const obscure = ref(true);
 const isLoading = ref(false);
 const errorMessage = ref('');
@@ -27,8 +26,8 @@ function fail(message: string) {
 
 async function login() {
   const id = seniorId.value.trim();
-  const pw = password.value.trim();
-  if (!id || !pw) {
+  const code = pin.value.trim();
+  if (!id || !code) {
     fail('Please fill in all fields.');
     return;
   }
@@ -36,14 +35,18 @@ async function login() {
   isLoading.value = true;
   void ttsPlayer.stop();
   try {
-    const user = await authService.login(id, pw);
-    profileService.setCurrentUser(user.id);
+    await authService.login(id, code);
     await router.replace('/app');
   } catch (e) {
     fail((e as Error).message.replace('Exception: ', ''));
   } finally {
     isLoading.value = false;
   }
+}
+
+function onPinInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  pin.value = input.value.replace(/\D/g, '').slice(0, 6);
 }
 </script>
 
@@ -69,19 +72,23 @@ async function login() {
           </div>
 
           <div class="field">
-            <label class="field__label" for="senior-pw">Password</label>
+            <label class="field__label" for="senior-pin">PIN</label>
             <div class="field__box">
               <input
-                id="senior-pw"
-                v-model="password"
+                id="senior-pin"
+                :value="pin"
                 :type="obscure ? 'password' : 'text'"
-                placeholder="Enter your password"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="6"
+                placeholder="Enter your 6-number PIN"
                 autocomplete="current-password"
+                @input="onPinInput"
               />
               <button
                 class="eye"
                 type="button"
-                aria-label="Toggle password visibility"
+                aria-label="Toggle PIN visibility"
                 @click="obscure = !obscure"
               >
                 <IonIcon :icon="obscure ? eyeOffOutline : eyeOutline" />

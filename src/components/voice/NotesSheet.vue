@@ -13,14 +13,17 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 
 const loading = ref(false);
 const notes = ref<string | null>(null);
+const summary = ref('');
 
-// Notes change after every exchange, so refetch each time the sheet opens.
+// Memory changes after every exchange, so refetch each time the sheet opens.
 watch(
   () => props.open,
   async (isOpen) => {
     if (!isOpen) return;
     loading.value = true;
-    notes.value = await profileService.loadUserNotes();
+    const memory = await profileService.loadMemory();
+    summary.value = memory.summary;
+    notes.value = memory.notes;
     loading.value = false;
   },
 );
@@ -33,6 +36,8 @@ watch(
       <h2 class="notes__title">Support notes</h2>
     </div>
     <p class="notes__sub">How AgakAI is getting to know Lola/Lolo — updated after each conversation.</p>
+
+    <p v-if="summary" class="notes__summary">{{ summary }}</p>
 
     <div class="notes__body">
       <div v-if="loading" class="notes__center"><LoadingSpinner /></div>
@@ -68,6 +73,12 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+.notes__summary {
+  margin: 0 0 14px;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--c-ink);
 }
 .notes__center {
   display: flex;
