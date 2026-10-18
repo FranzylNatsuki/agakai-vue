@@ -45,8 +45,14 @@ test('supplemental chat cards match their guidance context', async () => {
   try {
     const { supplementalCardKind } = await vite.ssrLoadModule('/src/services/chatCards.ts');
     assert.equal(supplementalCardKind('What benefits can I use?'), 'benefits');
+    assert.equal(supplementalCardKind('I need to see a doctor soon'), 'map');
+    assert.equal(supplementalCardKind('Can you help me find the nearest clinic?'), 'map');
+    assert.equal(supplementalCardKind('May ayuda ba para sa senior?'), 'benefits');
+    assert.equal(supplementalCardKind('Naa bay tabang pinansyal para sa senior?'), 'benefits');
     assert.equal(supplementalCardKind('Where is the health center?'), 'map');
-    assert.equal(supplementalCardKind('Tell me a story'), null);
+    const history = [{ role: 'user', text: 'I need to see a doctor soon' }];
+    assert.equal(supplementalCardKind('Where is it?', history), 'map');
+    assert.equal(supplementalCardKind('Tell me a story', history), null);
   } finally {
     await vite.close();
   }

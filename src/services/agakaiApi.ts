@@ -4,7 +4,7 @@ import { transcribeElevenLabs } from '@/services/elevenLabs';
 import { readSseData } from '@/services/sse';
 import { benefitService } from '@/services/benefitService';
 import { localizeBenefit, type Benefit } from '@/models/benefit';
-import { supplementalCardKind } from '@/services/chatCards';
+import { supplementalCardKind, type ConversationTurn } from '@/services/chatCards';
 import { profileService } from '@/services/profileService';
 import { memoryUpdateStatus } from '@/services/memoryUpdateStatus';
 import {
@@ -30,6 +30,7 @@ export interface ChatRequest {
   memoryLanguage?: AppLanguage;
   benefits?: Benefit[];
   userNotes?: string | null;
+  history?: ConversationTurn[];
   user?: Record<string, unknown> | null;
 }
 
@@ -69,14 +70,15 @@ function buildSystemInstruction(
     'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
     'RESPONSE LANGUAGE: Reply in the same language as the senior’s latest message. If that message is clearly English, reply only in English—even if saved notes, profile details, benefit data, or earlier messages are in Tagalog or Cebuano. A language preference saved from earlier conversations must never override the clearly used language of the latest message. Follow a different language only when the senior explicitly requests it in their latest message. If they code-switch, mirror their mix naturally. Never infer response language from the app interface language, location, name, or support notes.',
     'Friend matching and introductions are not available. Do not invent, recommend, or claim to connect the senior with another person. If asked, say this feature is not available yet.',
+    'CARD GUIDANCE: Select cards from the meaning of ordinary spoken or typed requests and recent conversation, not only FAQ phrases or exact keywords. Cards are for senior benefits and health-location discovery. Keep them relevant; do not add one to unrelated chat. Never promise a card unless the app indicates one below.',
     'Formatting & tone guidelines:',
     '- Keep answers concise (2 to 3 short sentences or a brief bulleted list) so it is quick to speak aloud and easy for an elderly person to follow.',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
     cardKind === 'benefits'
-      ? 'An interactive benefits card will appear below this reply. In one short final sentence, explain in the reply language: tap a benefit to ask how to use it, or tap See all to browse the full list.'
+      ? 'A benefits card will appear below this reply. In one short final sentence, tell the senior in the reply language they can tap a benefit to learn more or tap See all to browse. Do not imply they qualify for a benefit unless the available information confirms it.'
       : '',
     cardKind === 'map'
-      ? 'An interactive map card will appear below this reply. In one short final sentence, explain in the reply language that the senior can tap the map button below to view the place.'
+      ? 'A city health-center map card will appear below this reply. In one short final sentence, explain in the reply language that the senior can tap the map to view it. Do not call it the nearest or a verified provider.'
       : '',
     user ? `\nSenior Citizen Profile:\n${JSON.stringify(user, null, 2)}` : '',
     benefitsList ? `\nAvailable OSCA / LGU Benefits:\n${benefitsList}` : '',
@@ -236,14 +238,17 @@ export const agakApi = {
         req.user,
         benefitsSummary,
         userNotes,
-        supplementalCardKind(questionText),
+        supplementalCardKind(questionText, req.history ?? []),
       );
 
       // The authenticated Edge Function forwards Google's SSE response body directly;
       // do not buffer the stream here so answer text can appear as it is generated.
       const response = await streamWithGemini({
         systemInstruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: 'user', parts: [{ text: questionText }] }],
+        contents: [
+          ...(req.history ?? []).map(({ role, text }) => ({ role, parts: [{ text }] })),
+          { role: 'user', parts: [{ text: questionText }] },
+        ],
         generationConfig: { temperature: 0.5, maxOutputTokens: 1200 },
       });
 

@@ -20,7 +20,7 @@ import { profileService } from '@/services/profileService';
 import { benefitService } from '@/services/benefitService';
 import { authService } from '@/services/authService';
 import { agakApi } from '@/services/agakaiApi';
-import { supplementalCardKind } from '@/services/chatCards';
+import { supplementalCardKind, type ConversationTurn } from '@/services/chatCards';
 import { voiceRecorder } from '@/services/voiceRecorder';
 import { LiveTranscription } from '@/services/liveTranscription';
 import { ttsPlayer } from '@/services/ttsPlayer';
@@ -435,8 +435,8 @@ async function ask(questionText: string) {
   await runConversation({ text: q });
 }
 
-function appendSupplementalCard(questionText: string) {
-  const kind = supplementalCardKind(questionText);
+function appendSupplementalCard(questionText: string, history: ConversationTurn[]) {
+  const kind = supplementalCardKind(questionText, history);
   if (kind === 'map') {
     messages.value.push({
       id: nextId++,
@@ -456,6 +456,17 @@ function appendSupplementalCard(questionText: string) {
   }
 }
 
+function recentConversationHistory(): ConversationTurn[] {
+  return messages.value.flatMap((item): ConversationTurn[] => {
+    if (item.kind === 'user') return [{ role: 'user', text: item.text.trim().slice(-500) }];
+    if (item.kind === 'agent') {
+      const text = (item.say ?? item.markdown ?? '').trim();
+      if (text) return [{ role: 'model', text: text.slice(-500) }];
+    }
+    return [];
+  }).slice(-4);
+}
+
 async function runConversation(req: {
   text?: string;
   audioBytes?: Uint8Array;
@@ -464,6 +475,7 @@ async function runConversation(req: {
 }) {
   stopSpeaking();
   const gen = ++chatGen;
+  const history = recentConversationHistory();
 
   let finalQuestion = (req.text ?? '').trim();
   if (finalQuestion) {
@@ -497,6 +509,7 @@ async function runConversation(req: {
       ...req,
       user: userPayload,
       memoryLanguage: language.value,
+      history,
       ...(conversationContextReady.value
         ? { benefits: benefits.value, userNotes: userNotes.value ?? '' }
         : {}),
@@ -556,7 +569,7 @@ async function runConversation(req: {
         }
 
         if (finalQuestion) {
-          appendSupplementalCard(finalQuestion);
+          appendSupplementalCard(finalQuestion, history);
         }
         await scrollToBottom();
         speak(accumulated, combinedAudio);

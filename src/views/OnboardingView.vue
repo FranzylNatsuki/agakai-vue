@@ -492,9 +492,6 @@ async function continueSetup() {
 
         <Transition name="guided-step" mode="out-in">
           <div :key="step" class="onboarding__step-content">
-            <p class="onboarding__step" aria-live="polite">
-              <span>{{ t(step === 1 ? 'onboarding_step_language' : step === 2 ? 'onboarding_step_text_size' : step === 3 ? 'onboarding_step_microphone' : 'onboarding_step_location') }}</span>
-            </p>
             <h1>{{ stepTitle }}</h1>
             <p class="onboarding__dialogue" aria-live="polite">
               {{ dialogueText }}
@@ -560,8 +557,15 @@ async function continueSetup() {
         </Transition>
 
         <footer class="onboarding__footer">
-          <div class="onboarding__dots" aria-hidden="true">
-            <span v-for="index in 4" :key="index" :class="{ active: step === index }" />
+          <div
+            class="onboarding__dots"
+            role="progressbar"
+            :aria-valuenow="step"
+            aria-valuemin="1"
+            aria-valuemax="4"
+            :aria-valuetext="t(step === 1 ? 'onboarding_step_language' : step === 2 ? 'onboarding_step_text_size' : step === 3 ? 'onboarding_step_microphone' : 'onboarding_step_location')"
+          >
+            <span v-for="index in 4" :key="index" :class="{ active: step === index }" aria-hidden="true" />
           </div>
           <div class="onboarding__actions">
             <button v-if="step > 1" class="onboarding__back" type="button" :disabled="permissionBusy !== null" @click="goBack">
@@ -625,13 +629,6 @@ async function continueSetup() {
   color: var(--ink);
   font-size: 1.24em;
   line-height: 1.2;
-  text-align: center;
-}
-.onboarding__step {
-  margin: 0;
-  color: var(--muted);
-  font-size: max(0.8em, 16px);
-  font-weight: 700;
   text-align: center;
 }
 .onboarding__dialogue {
