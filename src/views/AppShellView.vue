@@ -125,6 +125,8 @@ const shellEl = ref<HTMLElement | null>(null);
 const menuPanelEl = ref<HTMLElement | null>(null);
 const sheetPanelEl = ref<HTMLElement | null>(null);
 const sheetScrollEl = ref<HTMLDivElement | null>(null);
+const sheetTopbarEl = ref<HTMLDivElement | null>(null);
+const sheetTopHintTop = ref(68);
 const sheetHasMoreBelow = ref(false);
 const sheetHasMoreAbove = ref(false);
 const overlayHintEl = ref<HTMLButtonElement | null>(null);
@@ -148,6 +150,7 @@ const toastVisible = ref(false);
 let nextId = 1;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let sheetMutationObserver: MutationObserver | null = null;
+let sheetResizeObserver: ResizeObserver | null = null;
 let unsubscribeAmp: (() => void) | null = null;
 let unsubscribePcm: (() => void) | null = null;
 let unsubscribeTranscript: (() => void) | null = null;
@@ -287,6 +290,11 @@ onMounted(async () => {
   if (sheetScrollEl.value) {
     sheetMutationObserver = new MutationObserver(() => requestAnimationFrame(updateSheetScrollCue));
     sheetMutationObserver.observe(sheetScrollEl.value, { childList: true, subtree: true, characterData: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      sheetResizeObserver = new ResizeObserver(() => requestAnimationFrame(updateSheetScrollCue));
+      sheetResizeObserver.observe(sheetScrollEl.value);
+      if (sheetTopbarEl.value) sheetResizeObserver.observe(sheetTopbarEl.value);
+    }
   }
   ttsPlayer.clearCache();
   unsubscribeSpeaking = ttsPlayer.onSpeakingChange((val) => {
@@ -392,6 +400,7 @@ onBeforeUnmount(() => {
   ttsPlayer.clearCache();
   memoryTranslationController?.abort();
   sheetMutationObserver?.disconnect();
+  sheetResizeObserver?.disconnect();
 });
 
 function showToast(text: string) {
@@ -841,6 +850,11 @@ function cancelMemoryTranslation() {
 
 function updateSheetScrollCue() {
   const panel = sheetScrollEl.value;
+  const sheetRect = sheetPanelEl.value?.getBoundingClientRect();
+  const topbarRect = sheetTopbarEl.value?.getBoundingClientRect();
+  if (sheetRect && topbarRect) {
+    sheetTopHintTop.value = Math.max(0, Math.ceil(topbarRect.bottom - sheetRect.top - 2));
+  }
   if (!panel || activeSheet.value === null) {
     sheetHasMoreAbove.value = false;
     sheetHasMoreBelow.value = false;
@@ -1352,7 +1366,7 @@ async function handleLogout() {
           tabindex="0"
           @scroll.passive="updateSheetScrollCue"
         >
-          <div class="sheet__topbar">
+          <div ref="sheetTopbarEl" class="sheet__topbar">
           <button
             class="sheet__close"
             type="button"
@@ -1478,7 +1492,12 @@ async function handleLogout() {
           </button>
         </template>
         </div>
-        <div v-if="sheetHasMoreAbove" class="sheet__scroll-hint sheet__scroll-hint--top" aria-hidden="true">
+        <div
+          v-if="sheetHasMoreAbove"
+          class="sheet__scroll-hint sheet__scroll-hint--top"
+          :style="{ top: `${sheetTopHintTop}px` }"
+          aria-hidden="true"
+        >
           <span aria-hidden="true">↑</span>
           {{ t('scroll_up_for_top') }}
         </div>
@@ -2495,10 +2514,9 @@ h1 {
 }
 
 .sheet__scroll-hint--top {
-  top: 68px;
   bottom: auto;
   padding: 8px 16px;
-  background: linear-gradient(to top, transparent, var(--bg) 40%);
+  background: var(--bg);
 }
 
 .sheet__scroll-hint span {
@@ -2528,7 +2546,8 @@ h1 {
 .sheet__topbar {
   position: sticky;
   top: -12px;
-  z-index: 3;
+  /* Leaflet controls reach z-index 1000; keep Back to menu/Close above them. */
+  z-index: 1101;
   display: flex;
   min-width: 0;
   flex-wrap: wrap;

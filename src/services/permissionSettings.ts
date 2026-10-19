@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 
 interface PermissionSettingsPlugin {
   checkPermission(options: { permission: 'microphone' | 'location' }): Promise<{ granted: boolean }>;
+  requestMicrophonePermission(): Promise<{ granted: boolean }>;
   openAppSettings(): Promise<void>;
 }
 
@@ -12,6 +13,16 @@ export async function hasNativePermission(permission: 'microphone' | 'location')
   if (!Capacitor.isNativePlatform()) return null;
   try {
     return (await PermissionSettings.checkPermission({ permission })).granted;
+  } catch {
+    return null;
+  }
+}
+
+/** Request Android microphone permission directly without starting audio capture. */
+export async function requestNativeMicrophonePermission(): Promise<boolean | null> {
+  if (Capacitor.getPlatform() !== 'android') return null;
+  try {
+    return (await PermissionSettings.requestMicrophonePermission()).granted;
   } catch {
     return null;
   }

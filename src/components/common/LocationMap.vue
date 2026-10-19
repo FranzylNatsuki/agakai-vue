@@ -120,7 +120,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.location-map { display: grid; gap: 8px; }
+.location-map {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  display: grid;
+  gap: 8px;
+}
 .location-map__canvas {
   width: 100%;
   height: min(42vh, 320px);

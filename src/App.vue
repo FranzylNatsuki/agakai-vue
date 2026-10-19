@@ -8,7 +8,6 @@ const showStartupSplash = ref(true);
 onMounted(() => {
   window.setTimeout(() => {
     showStartupSplash.value = false;
-    markStartupSplashHidden();
   }, 1000);
 });
 </script>
@@ -85,9 +84,11 @@ onMounted(() => {
     <IonApp class="agakai-ion-app">
       <IonRouterOutlet />
     </IonApp>
-    <div v-if="showStartupSplash" class="startup-splash" role="img" aria-label="AgakAI — Agak, Kaabag, Kinaadman">
-      <img src="/assets/splash-logo-cropped.png" alt="AgakAI — Agak, Kaabag, Kinaadman" />
-    </div>
+    <Transition name="startup-splash" @after-leave="markStartupSplashHidden">
+      <div v-if="showStartupSplash" class="startup-splash" role="img" aria-label="AgakAI — Agak, Kaabag, Kinaadman">
+        <img src="/assets/splash-logo-cropped.png" alt="AgakAI — Agak, Kaabag, Kinaadman" />
+      </div>
+    </Transition>
   </ResponsiveFrame>
 </template>
 
@@ -106,6 +107,23 @@ onMounted(() => {
   width: min(86vw, 420px);
   max-height: 72%;
   object-fit: contain;
+}
+
+.startup-splash-leave-active {
+  transition: opacity 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform-origin: center;
+}
+
+.startup-splash-leave-to {
+  opacity: 0;
+  transform: scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-splash-leave-active {
+    transition-duration: 1ms;
+  }
 }
 
 .agakai-ion-app,

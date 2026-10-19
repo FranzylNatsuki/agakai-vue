@@ -10,9 +10,15 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
-@CapacitorPlugin(name = "PermissionSettings")
+@CapacitorPlugin(
+    name = "PermissionSettings",
+    permissions = @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
+)
 public class PermissionSettingsPlugin extends Plugin {
 
     @PluginMethod
@@ -33,6 +39,24 @@ public class PermissionSettingsPlugin extends Plugin {
         }
         JSObject result = new JSObject();
         result.put("granted", granted);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestMicrophonePermission(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("granted", true);
+            call.resolve(result);
+            return;
+        }
+        requestPermissionForAlias("microphone", call, "microphonePermissionCallback");
+    }
+
+    @PermissionCallback
+    private void microphonePermissionCallback(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("granted", getPermissionState("microphone") == PermissionState.GRANTED);
         call.resolve(result);
     }
 
