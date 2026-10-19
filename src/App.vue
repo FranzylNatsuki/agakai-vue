@@ -1,14 +1,28 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import { IonApp, IonRouterOutlet } from '@ionic/vue';
 import ResponsiveFrame from '@/components/common/ResponsiveFrame.vue';
 import { markStartupSplashHidden } from '@/services/startupSplash';
 
-const showStartupSplash = ref(true);
 onMounted(() => {
+  const splash = document.getElementById('startup-splash-static');
+  if (!splash) {
+    markStartupSplashHidden();
+    return;
+  }
+
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    splash.remove();
+    markStartupSplashHidden();
+  };
+  splash.addEventListener('transitionend', finish, { once: true });
   window.setTimeout(() => {
-    showStartupSplash.value = false;
-  }, 1000);
+    splash.classList.add('startup-splash-static--leaving');
+    window.setTimeout(finish, 500);
+  }, 1400);
 });
 </script>
 
@@ -84,67 +98,10 @@ onMounted(() => {
     <IonApp class="agakai-ion-app">
       <IonRouterOutlet />
     </IonApp>
-    <Transition name="startup-splash" @after-leave="markStartupSplashHidden">
-      <div v-if="showStartupSplash" class="startup-splash" role="img" aria-label="AgakAI — Agak, Kaabag, Kinaadman">
-        <Transition name="startup-logo" appear>
-          <img src="/assets/splash-logo-cropped.png" alt="AgakAI — Agak, Kaabag, Kinaadman" />
-        </Transition>
-      </div>
-    </Transition>
   </ResponsiveFrame>
 </template>
 
 <style>
-.startup-splash {
-  position: absolute;
-  inset: 0;
-  z-index: 20000;
-  display: grid;
-  place-items: center;
-  background: var(--bg);
-}
-
-.startup-splash img {
-  display: block;
-  width: min(86vw, 420px);
-  max-height: 72%;
-  object-fit: contain;
-}
-
-.startup-splash-leave-active {
-  transition: opacity 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  transform-origin: center;
-}
-
-.startup-splash-leave-to {
-  opacity: 0;
-  transform: scale(0.985);
-}
-
-.startup-logo-appear-active {
-  transition: opacity 420ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  transform-origin: center;
-}
-
-.startup-logo-appear-from {
-  opacity: 0;
-  transform: translateY(8px) scale(0.96);
-}
-
-.startup-logo-appear-to {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .startup-splash-leave-active,
-  .startup-logo-appear-active {
-    transition-duration: 1ms;
-  }
-}
-
 .agakai-ion-app,
 .agakai-ion-app ion-router-outlet,
 .agakai-ion-app .ion-page {

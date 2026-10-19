@@ -202,8 +202,8 @@ function onPinInput(event: Event) {
 
 .login-logo {
   display: block;
-  width: 240px;
-  max-width: 80%;
+  width: min(86vw, 320px);
+  max-width: 100%;
   height: auto;
   object-fit: contain;
 }

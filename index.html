@@ -8,8 +8,91 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#FAFAFC" />
     <link rel="icon" type="image/png" href="/assets/favicon.png?v=repair2" />
+    <link rel="preload" as="image" href="/assets/splash-logo-cropped.png" fetchpriority="high" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #FAFAFC;
+      }
+
+      #startup-splash-static {
+        position: fixed;
+        inset: 0;
+        z-index: 20000;
+        display: grid;
+        place-items: center;
+        background: #FAFAFC;
+        opacity: 1;
+        transition: opacity 360ms cubic-bezier(0.22, 0.61, 0.36, 1),
+          transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1);
+        transform-origin: center;
+      }
+
+      #startup-splash-static img {
+        display: block;
+        width: min(86vw, 420px);
+        max-height: 72%;
+        object-fit: contain;
+        opacity: 0;
+        transform: translateY(8px) scale(0.94);
+      }
+
+      #startup-splash-static.startup-splash-static--ready img {
+        animation: startup-logo-in 800ms cubic-bezier(0.4, 0, 0.2, 1) both;
+      }
+
+      #startup-splash-static.startup-splash-static--leaving {
+        opacity: 0;
+        transform: scale(0.985);
+      }
+
+      @keyframes startup-logo-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.94);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #startup-splash-static {
+          transition-duration: 1ms;
+        }
+
+        #startup-splash-static.startup-splash-static--ready img {
+          animation-duration: 1ms;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="startup-splash-static" role="img" aria-label="AgakAI — Agak, Kaabag, Kinaadman">
+      <img src="/assets/splash-logo-cropped.png" alt="" aria-hidden="true" />
+    </div>
+    <script>
+      (() => {
+        const splash = document.getElementById('startup-splash-static');
+        const logo = splash?.querySelector('img');
+        if (!splash || !logo) return;
+        const reveal = () => {
+          const decoded = typeof logo.decode === 'function'
+            ? logo.decode().catch(() => undefined)
+            : Promise.resolve();
+          void decoded.finally(() => {
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+              splash.classList.add('startup-splash-static--ready');
+            }));
+          });
+        };
+        if (logo.complete && logo.naturalWidth > 0) reveal();
+        else logo.addEventListener('load', reveal, { once: true });
+      })();
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
