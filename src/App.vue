@@ -86,7 +86,9 @@ onMounted(() => {
     </IonApp>
     <Transition name="startup-splash" @after-leave="markStartupSplashHidden">
       <div v-if="showStartupSplash" class="startup-splash" role="img" aria-label="AgakAI — Agak, Kaabag, Kinaadman">
-        <img src="/assets/splash-logo-cropped.png" alt="AgakAI — Agak, Kaabag, Kinaadman" />
+        <Transition name="startup-logo" appear>
+          <img src="/assets/splash-logo-cropped.png" alt="AgakAI — Agak, Kaabag, Kinaadman" />
+        </Transition>
       </div>
     </Transition>
   </ResponsiveFrame>
@@ -120,8 +122,25 @@ onMounted(() => {
   transform: scale(0.985);
 }
 
+.startup-logo-appear-active {
+  transition: opacity 420ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform-origin: center;
+}
+
+.startup-logo-appear-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+.startup-logo-appear-to {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .startup-splash-leave-active {
+  .startup-splash-leave-active,
+  .startup-logo-appear-active {
     transition-duration: 1ms;
   }
 }
