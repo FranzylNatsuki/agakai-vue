@@ -1,48 +1,48 @@
 export type SupplementalCardKind = 'map' | 'benefits';
 export type ConversationTurn = { role: 'user' | 'model'; text: string };
 
-function normalize(text: string): string {
-  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-}
+const CARD_MARKER_PREFIX = '[[AGAK_CARD:';
+const CARD_MARKER_PATTERN = /^\[\[AGAK_CARD:(benefits|map|none)\]\][\s.!?]*$/i;
 
-function directCardKind(text: string): SupplementalCardKind | null {
-  const lower = normalize(text);
-  const benefitIntent =
-    /\b(?:benefit|benefits|benepisyo|pensyon|pension|allowance|discount|discounts|cash aid|cash assistance|financial (?:help|assistance)|tulong pinansyal|tabang pinansyal|ayuda)\b/.test(lower)
-    || (/\b(?:support|assistance|help|aid|programs?|services?|tulong|tabang)\b/.test(lower)
-      && /\b(?:senior|seniors|senior citizen|lola|lolo|elderly|tigulang|nakatatanda)\b/.test(lower));
-  if (benefitIntent) return 'benefits';
+/** Holds back a short suffix so Gemini's card marker never reaches visible text or TTS. */
+export function createCardDecisionStream() {
+  let pending = '';
+  let markerStarted = false;
 
-  const carePlace =
-    /\b(?:doctor|doctors|clinic|clinics|hospital|hospitals|health center|health centre|medical center|medical centre|barangay health station|botika|pharmacy|doktor|ospital|klinika)\b/.test(lower);
-  const asksForCareLocation = carePlace
-    && /\b(?:where|nearest|near me|find|look for|locate|map|directions|go to|visit|need to see|want to see|can i see|asa|saan|adto|moadto|mangita|pangita|makakita|makaadto)\b/.test(lower);
-  const asksForCheckup = /(?:check[ -]?ups?|pacheckup|magpacheckup|treatment)/.test(lower)
-    && /\b(?:need|want|book|schedule|get|where|asa|saan|mangita|pangita)\b/.test(lower);
-  const asksWhereToGoWithHealthIssue =
-    /\b(?:sick|ill|fever|pain|injured|hurt|symptom|sakit|hilanaat|hilanat)\b/.test(lower)
-    && /\b(?:where|where should i go|asa|saan|adto|moadto|makaadto)\b/.test(lower);
+  return {
+    push(chunk: string): string {
+      if (markerStarted) {
+        pending += chunk;
+        return '';
+      }
+      pending += chunk;
+      const markerIndex = pending.toLowerCase().indexOf(CARD_MARKER_PREFIX.toLowerCase());
+      if (markerIndex >= 0) {
+        markerStarted = true;
+        const visible = pending.slice(0, markerIndex);
+        pending = pending.slice(markerIndex);
+        return visible;
+      }
 
-  return asksForCareLocation || asksForCheckup || asksWhereToGoWithHealthIssue ? 'map' : null;
-}
+      const safeLength = pending.length - (CARD_MARKER_PREFIX.length - 1);
+      if (safeLength <= 0) return '';
+      const visible = pending.slice(0, safeLength);
+      pending = pending.slice(safeLength);
+      return visible;
+    },
 
-function isConversationalFollowUp(question: string): boolean {
-  const lower = normalize(question).trim();
-  return /^(?:and what about|what about|how about|where is it|where is that|where\??|how much|how do i do that|can i do that|can i get it|is it available|is that available|am i eligible|tell me more|more|yes|no|okay|please|there|that|it|those|them)(?:[.!?, ]|$)/.test(lower);
-}
-
-/**
- * Selects a relevant card from natural spoken or typed intent, not FAQ wording.
- * Short follow-ups may inherit the intent of the immediately preceding user turn.
- */
-export function supplementalCardKind(
-  question: string,
-  history: ConversationTurn[] = [],
-): SupplementalCardKind | null {
-  const direct = directCardKind(question);
-  if (direct) return direct;
-  if (!isConversationalFollowUp(question)) return null;
-
-  const previousUserTurn = [...history].reverse().find((turn) => turn.role === 'user');
-  return previousUserTurn ? directCardKind(previousUserTurn.text) : null;
+    finish(): { text: string; cardKind: SupplementalCardKind | null } {
+      const marker = pending.match(CARD_MARKER_PATTERN);
+      if (marker) {
+        return {
+          text: '',
+          cardKind: marker[1].toLowerCase() === 'none' ? null : marker[1].toLowerCase() as SupplementalCardKind,
+        };
+      }
+      return {
+        text: pending.replace(/\[\[AGAK_CARD:[\s\S]*$/i, '').trimEnd(),
+        cardKind: null,
+      };
+    },
+  };
 }

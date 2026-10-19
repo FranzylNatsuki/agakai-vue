@@ -56,6 +56,7 @@ test('live Scribe client streams PCM and commits transcript on Stop', async () =
     assert.equal(url.searchParams.get('token'), 'one-time-token');
     assert.equal(url.searchParams.get('audio_format'), 'pcm_16000');
     assert.equal(url.searchParams.get('language_code'), null);
+    assert.deepEqual(url.searchParams.getAll('secondary_languages'), ['eng', 'ceb', 'fil']);
     assert.equal(url.searchParams.get('commit_strategy'), 'vad');
     assert.equal(url.searchParams.get('vad_silence_threshold_secs'), '1.5');
     assert.equal(url.searchParams.get('vad_threshold'), '0.4');

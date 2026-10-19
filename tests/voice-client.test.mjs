@@ -58,7 +58,7 @@ test('ElevenLabs-only client', async (t) => {
     });
     const voice = await vite.ssrLoadModule('/src/services/elevenLabs.ts');
     const { ttsPlayer } = await vite.ssrLoadModule('/src/services/ttsPlayer.ts');
-    await t.test('STT leaves language detection automatic for mixed-language speech', async () => {
+    await t.test('batch STT does not force a single language', async () => {
       globalThis.fetch = async (url, options) => {
         assert.equal(url, 'https://agakai-test.supabase.co/functions/v1/elevenlabs-voice/stt');
         assert.equal(options.headers.Authorization.startsWith('Bearer '), true);

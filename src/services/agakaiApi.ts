@@ -4,7 +4,7 @@ import { transcribeElevenLabs } from '@/services/elevenLabs';
 import { readSseData } from '@/services/sse';
 import { benefitService } from '@/services/benefitService';
 import { localizeBenefit, type Benefit } from '@/models/benefit';
-import { supplementalCardKind, type ConversationTurn } from '@/services/chatCards';
+import { createCardDecisionStream, type ConversationTurn } from '@/services/chatCards';
 import { profileService } from '@/services/profileService';
 import { memoryUpdateStatus } from '@/services/memoryUpdateStatus';
 import {
@@ -19,7 +19,7 @@ export type AgakEvent =
   | { type: 'transcript'; question: string }
   | { type: 'delta'; text: string }
   | { type: 'audio'; chunk: Uint8Array }
-  | { type: 'done'; answer: string }
+  | { type: 'done'; answer: string; cardKind: 'map' | 'benefits' | null }
   | { type: 'error'; message: string };
 
 export interface ChatRequest {
@@ -31,6 +31,7 @@ export interface ChatRequest {
   benefits?: Benefit[];
   userNotes?: string | null;
   history?: ConversationTurn[];
+  allowCards?: boolean;
   user?: Record<string, unknown> | null;
 }
 
@@ -64,21 +65,24 @@ function buildSystemInstruction(
   user: Record<string, unknown> | null | undefined,
   benefitsList: string,
   userNotes: string | null,
-  cardKind: 'map' | 'benefits' | null,
+  allowCards: boolean,
 ): string {
   return [
     'You are AgakAI, a compassionate, patient, and trustworthy voice assistant for Filipino senior citizens (Lola/Lolo) under OSCA (Office of the Senior Citizens Affairs).',
     'RESPONSE LANGUAGE: Reply in the same language as the senior’s latest message. If that message is clearly English, reply only in English—even if saved notes, profile details, benefit data, or earlier messages are in Tagalog or Cebuano. A language preference saved from earlier conversations must never override the clearly used language of the latest message. Follow a different language only when the senior explicitly requests it in their latest message. If they code-switch, mirror their mix naturally. Never infer response language from the app interface language, location, name, or support notes.',
     'Friend matching and introductions are not available. Do not invent, recommend, or claim to connect the senior with another person. If asked, say this feature is not available yet.',
-    'CARD GUIDANCE: Select cards from the meaning of ordinary spoken or typed requests and recent conversation, not only FAQ phrases or exact keywords. Cards are for senior benefits and health-location discovery. Keep them relevant; do not add one to unrelated chat. Never promise a card unless the app indicates one below.',
+    allowCards
+      ? 'CARD DECISION: You decide whether an interactive card would genuinely help, using the meaning of this ordinary conversation and recent turns—not a fixed FAQ list. Choose benefits for relevant listed senior benefits, pensions, discounts, medical or medicine assistance, and free services. Choose map only when a health-care location would help. Choose none for unrelated chat or when the available data cannot support the card. The map is a generic city health-center location, not a verified nearest provider. Do not imply eligibility or current availability unless the supplied data confirms it.'
+      : 'No interactive card is available in this view; answer normally without referring to cards.',
+    'OUTPUT PROTOCOL: End every response with exactly one routing marker on its own final line: [[AGAK_CARD:benefits]], [[AGAK_CARD:map]], or [[AGAK_CARD:none]]. Do not mention the marker in the answer. The app removes it before showing or speaking the response.',
     'Formatting & tone guidelines:',
     '- Keep answers concise (2 to 3 short sentences or a brief bulleted list) so it is quick to speak aloud and easy for an elderly person to follow.',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
-    cardKind === 'benefits'
-      ? 'A benefits card will appear below this reply. In one short final sentence, tell the senior in the reply language they can tap a benefit to learn more or tap See all to browse. Do not imply they qualify for a benefit unless the available information confirms it.'
+    allowCards && benefitsList
+      ? 'If you choose a benefits card, point to only relevant listed programs. Briefly tell the senior they can tap an item to learn more or tap See all to browse.'
       : '',
-    cardKind === 'map'
-      ? 'A city health-center map card will appear below this reply. In one short final sentence, explain in the reply language that the senior can tap the map to view it. Do not call it the nearest or a verified provider.'
+    allowCards
+      ? 'If you choose a map card, tell the senior they can tap it to view the city health-center location; never call it the nearest or a verified provider.'
       : '',
     user ? `\nSenior Citizen Profile:\n${JSON.stringify(user, null, 2)}` : '',
     benefitsList ? `\nAvailable OSCA / LGU Benefits:\n${benefitsList}` : '',
@@ -196,7 +200,7 @@ export const agakApi = {
         yield { type: 'delta', text: word };
         await sleep(25);
       }
-      yield { type: 'done', answer };
+      yield { type: 'done', answer, cardKind: null };
       return;
     }
 
@@ -238,7 +242,7 @@ export const agakApi = {
         req.user,
         benefitsSummary,
         userNotes,
-        supplementalCardKind(questionText, req.history ?? []),
+        req.allowCards === true,
       );
 
       // The authenticated Edge Function forwards Google's SSE response body directly;
@@ -262,6 +266,7 @@ export const agakApi = {
 
       let fullAnswer = '';
       let finishReason: string | null = null;
+      const cardDecisionStream = createCardDecisionStream();
 
       for await (const payload of readSseData(response.body)) {
         if (!payload || payload === '[DONE]') continue;
@@ -284,10 +289,20 @@ export const agakApi = {
         if (candidate?.finishReason) finishReason = candidate.finishReason;
         for (const part of candidate?.content?.parts ?? []) {
           if (!part.text) continue;
-          fullAnswer += part.text;
-          yield { type: 'delta', text: part.text };
+          const visibleText = cardDecisionStream.push(part.text);
+          if (visibleText) {
+            fullAnswer += visibleText;
+            yield { type: 'delta', text: visibleText };
+          }
         }
       }
+
+      const cardDecision = cardDecisionStream.finish();
+      if (cardDecision.text) {
+        fullAnswer += cardDecision.text;
+        yield { type: 'delta', text: cardDecision.text };
+      }
+      fullAnswer = fullAnswer.trim();
 
       if (finishReason === 'MAX_TOKENS') {
         yield {
@@ -316,7 +331,11 @@ export const agakApi = {
       void updateRollingUserNotes(questionText, fullAnswer, req.memoryLanguage);
 
       // 5. The player streams ElevenLabs audio for the completed answer.
-      yield { type: 'done', answer: fullAnswer };
+      yield {
+        type: 'done',
+        answer: fullAnswer,
+        cardKind: req.allowCards ? cardDecision.cardKind : null,
+      };
     } catch (err) {
       yield {
         type: 'error',

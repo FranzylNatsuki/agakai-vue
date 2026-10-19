@@ -37,6 +37,11 @@ export class LiveTranscription {
     url.searchParams.set('model_id', 'scribe_v2_realtime');
     url.searchParams.set('token', token);
     url.searchParams.set('audio_format', 'pcm_16000');
+    // Keep automatic detection, but focus it on the app's supported languages.
+    // This allows English, Cebuano, and Filipino/Tagalog to mix in one stream.
+    for (const language of ['eng', 'ceb', 'fil']) {
+      url.searchParams.append('secondary_languages', language);
+    }
     // VAD stabilizes completed phrases during natural pauses instead of
     // revising one long interim hypothesis until the user taps Done.
     url.searchParams.set('commit_strategy', 'vad');

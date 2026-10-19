@@ -20,7 +20,7 @@ import { profileService } from '@/services/profileService';
 import { benefitService } from '@/services/benefitService';
 import { authService } from '@/services/authService';
 import { agakApi } from '@/services/agakaiApi';
-import { supplementalCardKind, type ConversationTurn } from '@/services/chatCards';
+import type { ConversationTurn, SupplementalCardKind } from '@/services/chatCards';
 import { voiceRecorder } from '@/services/voiceRecorder';
 import { LiveTranscription } from '@/services/liveTranscription';
 import { ttsPlayer } from '@/services/ttsPlayer';
@@ -435,8 +435,7 @@ async function ask(questionText: string) {
   await runConversation({ text: q });
 }
 
-function appendSupplementalCard(questionText: string, history: ConversationTurn[]) {
-  const kind = supplementalCardKind(questionText, history);
+function appendSupplementalCard(kind: SupplementalCardKind) {
   if (kind === 'map') {
     messages.value.push({
       id: nextId++,
@@ -477,9 +476,9 @@ async function runConversation(req: {
   const gen = ++chatGen;
   const history = recentConversationHistory();
 
-  let finalQuestion = (req.text ?? '').trim();
-  if (finalQuestion) {
-    messages.value.push({ id: nextId++, kind: 'user', text: finalQuestion });
+  const initialQuestion = (req.text ?? '').trim();
+  if (initialQuestion) {
+    messages.value.push({ id: nextId++, kind: 'user', text: initialQuestion });
   }
 
   const thinkId = nextId++;
@@ -510,6 +509,7 @@ async function runConversation(req: {
       user: userPayload,
       memoryLanguage: language.value,
       history,
+      allowCards: true,
       ...(conversationContextReady.value
         ? { benefits: benefits.value, userNotes: userNotes.value ?? '' }
         : {}),
@@ -517,7 +517,6 @@ async function runConversation(req: {
       if (gen !== chatGen) return;
 
       if (event.type === 'transcript') {
-        finalQuestion = event.question;
         // Insert the transcribed user bubble right before the thinking indicator
         const thinkIdx = messages.value.findIndex((m) => m.id === thinkId);
         const userItem: ChatItem = { id: nextId++, kind: 'user', text: event.question };
@@ -568,9 +567,7 @@ async function runConversation(req: {
           }
         }
 
-        if (finalQuestion) {
-          appendSupplementalCard(finalQuestion, history);
-        }
+        if (event.cardKind) appendSupplementalCard(event.cardKind);
         await scrollToBottom();
         speak(accumulated, combinedAudio);
 
