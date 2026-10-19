@@ -1,3 +1,10 @@
+export interface BenefitTranslation {
+  title?: string;
+  description?: string;
+  dateAndLocation?: string;
+  lgu?: string;
+}
+
 export interface Benefit {
   id: string;
   title: string;
@@ -8,6 +15,48 @@ export interface Benefit {
   description: string;
   /** LGU(s) the benefit applies to, used for location filtering. */
   lgu: string;
+  /** Optional locale-code translations, e.g. { ceb: { title, description } }. */
+  translations?: Record<string, BenefitTranslation>;
+}
+
+/** Replace database shorthand with a clear, locale-appropriate coverage label. */
+const NATIONWIDE_LABELS: Record<string, string> = {
+  en: 'Available nationwide',
+  ceb: 'Sakop sa tibuok nasod',
+  tl: 'Sakop sa buong bansa',
+};
+
+function isNationwideLabel(value: string): boolean {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  return /^(?:national\s*\/\s*all\s+lgus?|all\s+lgus?|nationwide|nation[- ]wide|all\s+(?:of\s+)?(?:the\s+)?philippines|philippines[- ]wide|available nationwide|sa tibuok nasod|sa buong bansa|sakop sa tibuok nasod|sakop sa buong bansa|nasodnon\s*\/\s*tanang\s+lgus?|pambansa\s*\/\s*lahat ng\s+lgus?)$/i.test(normalized);
+}
+
+function localizeCoverage(value: string, localeCode: string): string {
+  return isNationwideLabel(value) ? NATIONWIDE_LABELS[localeCode] ?? NATIONWIDE_LABELS.en : value;
+}
+
+function localizeDateAndLocation(value: string, localeCode: string): string {
+  const parts = value.split('•').map((part) => part.trim());
+  if (parts.length > 1) {
+    const location = parts.slice(1).join(' • ');
+    const localizedLocation = localizeCoverage(location, localeCode);
+    return [parts[0], localizedLocation].filter(Boolean).join(' • ');
+  }
+  return localizeCoverage(value, localeCode);
+}
+
+/** Resolve optional benefit copy by locale code, falling back to the source text. */
+export function localizeBenefit(benefit: Benefit, localeCode: string): Benefit {
+  const translation = benefit.translations?.[localeCode];
+  const dateAndLocation = translation?.dateAndLocation || benefit.dateAndLocation;
+  const lgu = translation?.lgu || benefit.lgu;
+  return {
+    ...benefit,
+    title: translation?.title || benefit.title,
+    description: translation?.description || benefit.description,
+    dateAndLocation: localizeDateAndLocation(dateAndLocation, localeCode),
+    lgu: localizeCoverage(lgu, localeCode),
+  };
 }
 
 /** Ionicons name for a benefit's `iconKey` (mirrors Benefit.iconData in Flutter). */
@@ -63,5 +112,9 @@ export function benefitFromJson(json: Record<string, any>): Benefit {
     category: json.category ?? '',
     description: json.description ?? json.simplified_description ?? '',
     lgu: json.lgu ?? '',
+    translations:
+      json.translations && typeof json.translations === 'object' && !Array.isArray(json.translations)
+        ? json.translations
+        : undefined,
   };
 }

@@ -1,0 +1,50 @@
+{
+  "en/microphone-v2.wav": {
+    "key": "onboarding_mic_prompt",
+    "sha256": "9015aa34128daa2adaefab4c1973856d8579f668f45f44488ef08b4253aa4f1c"
+  },
+  "en/location-v2.wav": {
+    "key": "onboarding_location_prompt",
+    "sha256": "bc9de483ff2ccf9710f401665c6df7ee8b7043aeb6a53e7f78c68d7677b41fa7"
+  },
+  "en/microphone-android-v2.wav": {
+    "key": "onboarding_mic_prompt_android",
+    "sha256": "5a2d449d4936a1286182ee5138d16d67c624f3ebaa5be15bf676496f80dd8c04"
+  },
+  "en/location-android-v2.wav": {
+    "key": "onboarding_location_prompt_android",
+    "sha256": "78ba5d2a97a9885be441f396264cf25d65bca78580542d2e71624e85db49dd1e"
+  },
+  "ceb/microphone-v2.wav": {
+    "key": "onboarding_mic_prompt",
+    "sha256": "554ec2c7e43ae8fc709cb7feaeef70275245c560ccab1d4e11326f79719ad7eb"
+  },
+  "ceb/location-v2.wav": {
+    "key": "onboarding_location_prompt",
+    "sha256": "1e27a674c79daebd777312ff302b036ebb38a98efcf4b70553db3cf8601df0a1"
+  },
+  "ceb/microphone-android-v2.wav": {
+    "key": "onboarding_mic_prompt_android",
+    "sha256": "21c992f1fe582103d86e468c3390cc44aed57e12c33caf6ab4bc53f5ec81ed5c"
+  },
+  "ceb/location-android-v2.wav": {
+    "key": "onboarding_location_prompt_android",
+    "sha256": "dfc08b2d5524dfc92c46394a5adcfabd8094bf89ae24d95162b766f939e74ae6"
+  },
+  "tl/microphone-v2.wav": {
+    "key": "onboarding_mic_prompt",
+    "sha256": "1bf3216f0cae676d79ef5195072ab19b037eb6f9d2f632a0b7bf07f5120003ed"
+  },
+  "tl/location-v2.wav": {
+    "key": "onboarding_location_prompt",
+    "sha256": "86e9a0f8c259d11cbab37f81aaa01bc7d430ab7825f19d25e0b97a8bc450f9a2"
+  },
+  "tl/microphone-android-v2.wav": {
+    "key": "onboarding_mic_prompt_android",
+    "sha256": "016af77a2534a55daa6e75c964ae12bc954d0f0ee7608e91409c47d13f6b9fad"
+  },
+  "tl/location-android-v2.wav": {
+    "key": "onboarding_location_prompt_android",
+    "sha256": "9871733f565719fc7d6c7cd8f9bc3b941f386fd7e5361941352b3ca83585b256"
+  }
+}

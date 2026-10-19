@@ -2,7 +2,6 @@
 export interface Profile {
   id: number;
   name: string;
-  email: string;
   seniorId: string;
   mobileNo: string;
   age: number;
@@ -22,7 +21,6 @@ export function profileFromJson(json: Record<string, any>): Profile {
   return {
     id: Number(json.id ?? 0),
     name: json.name ?? '',
-    email: json.email ?? '',
     seniorId: String(pick(json.senior_id, json.seniorId) ?? ''),
     mobileNo: String(pick(json.mobileNo, json.mobile_no, json.mobile) ?? ''),
     age: Number(json.age ?? 0),

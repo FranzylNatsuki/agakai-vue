@@ -1,6 +1,16 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue';
 import { IonApp, IonRouterOutlet } from '@ionic/vue';
 import ResponsiveFrame from '@/components/common/ResponsiveFrame.vue';
+import { markStartupSplashHidden } from '@/services/startupSplash';
+
+const showStartupSplash = ref(true);
+onMounted(() => {
+  window.setTimeout(() => {
+    showStartupSplash.value = false;
+    markStartupSplashHidden();
+  }, 1000);
+});
 </script>
 
 <template>
@@ -14,6 +24,9 @@ import ResponsiveFrame from '@/components/common/ResponsiveFrame.vue';
       <symbol id="mic" viewBox="0 0 24 24">
         <rect x="9" y="3" width="6" height="11" rx="3" />
         <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+      </symbol>
+      <symbol id="stop" viewBox="0 0 24 24">
+        <rect x="5" y="5" width="14" height="14" rx="2" />
       </symbol>
       <symbol id="menu" viewBox="0 0 24 24">
         <path d="M4 7h16M4 12h16M4 17h10" />
@@ -72,10 +85,29 @@ import ResponsiveFrame from '@/components/common/ResponsiveFrame.vue';
     <IonApp class="agakai-ion-app">
       <IonRouterOutlet />
     </IonApp>
+    <div v-if="showStartupSplash" class="startup-splash" role="img" aria-label="AgakAI — Agak, Kaabag, Kinaadman">
+      <img src="/assets/splash-logo-cropped.png" alt="AgakAI — Agak, Kaabag, Kinaadman" />
+    </div>
   </ResponsiveFrame>
 </template>
 
 <style>
+.startup-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 20000;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+
+.startup-splash img {
+  display: block;
+  width: min(86vw, 420px);
+  max-height: 72%;
+  object-fit: contain;
+}
+
 .agakai-ion-app,
 .agakai-ion-app ion-router-outlet,
 .agakai-ion-app .ion-page {

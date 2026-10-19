@@ -3,6 +3,11 @@ import { getSupabase } from '@/services/supabase';
 import { mockBenefits } from '@/data/mock';
 import { benefitFromJson, type Benefit } from '@/models/benefit';
 
+const BENEFITS_CACHE_TTL_MS = 5 * 60_000;
+let benefitsCache: Benefit[] | null = null;
+let benefitsCachedAt = 0;
+let benefitsRequest: Promise<Benefit[]> | null = null;
+
 const STOP_WORDS = new Set([
   'the', 'and', 'barangay', 'brgy', 'city', 'province', 'philippines',
   'street', 'st', 'zone', 'purok', 'sitio', 'village', 'road', 'blvd',
@@ -35,8 +40,9 @@ export function isRelevantFor(benefit: Benefit, address?: string | null): boolea
  * Retrieval service for the `benefit` table.
  * Fetches from Supabase when configured, with mockBenefits fallback.
  */
-export const benefitService = {
-  async loadBenefits(): Promise<Benefit[]> {
+function refreshBenefits(): Promise<Benefit[]> {
+  if (benefitsRequest) return benefitsRequest;
+  benefitsRequest = (async () => {
     if (isBackendConfigured()) {
       try {
         const supabase = getSupabase();
@@ -46,15 +52,33 @@ export const benefitService = {
           .order('title', { ascending: true });
 
         if (!error && data && data.length > 0) {
-          return data.map(benefitFromJson);
+          benefitsCache = data.map(benefitFromJson);
+          benefitsCachedAt = Date.now();
+          return benefitsCache;
         }
       } catch {
-        // Fall through to mock fallback
+        // Keep using the last good cache or mock fallback.
       }
     }
 
-    if (appConfig.useMockData) return mockBenefits;
-    return [];
+    if (benefitsCache) {
+      benefitsCachedAt = Date.now();
+      return benefitsCache;
+    }
+    benefitsCache = appConfig.useMockData ? mockBenefits : [];
+    benefitsCachedAt = Date.now();
+    return benefitsCache;
+  })().finally(() => { benefitsRequest = null; });
+  return benefitsRequest;
+}
+
+export const benefitService = {
+  async loadBenefits(): Promise<Benefit[]> {
+    if (benefitsCache) {
+      if (Date.now() - benefitsCachedAt >= BENEFITS_CACHE_TTL_MS) void refreshBenefits();
+      return benefitsCache;
+    }
+    return refreshBenefits();
   },
 
   /** Falls back to the full list so the screen is never empty. */

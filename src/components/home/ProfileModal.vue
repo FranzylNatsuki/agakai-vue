@@ -17,16 +17,16 @@ const { t } = useSettings();
 </script>
 
 <template>
-  <AppModal :open="open" :title="t('profile_details')" :confirm-text="t('close')" @cancel="emit('close')" @confirm="emit('close')">
+  <AppModal :open="open" :title="t('profile_details')" :confirm-text="t('close_profile')" @cancel="emit('close')" @confirm="emit('close')">
     <div v-if="loading" class="profile-modal__center"><LoadingSpinner /></div>
-    <p v-else-if="error" class="profile-modal__error">{{ t('failed_to_load_profile') }}: {{ error }}</p>
+    <p v-else-if="error" class="profile-modal__error">{{ t('failed_to_load_profile') }}</p>
     <p v-else-if="!profile" class="profile-modal__plain">{{ t('no_profile_data') }}</p>
     <div v-else>
       <ProfileDetailRow :label="t('name')" :value="profile.name" />
       <ProfileDetailRow :label="t('senior_id')" :value="profile.seniorId" />
       <ProfileDetailRow :label="t('mobile_no')" :value="profile.mobileNo" />
       <ProfileDetailRow :label="t('age')" :value="t('age_years', { age: profile.age })" />
-      <ProfileDetailRow label="Gender" :value="profile.gender" />
+      <ProfileDetailRow :label="t('gender')" :value="profile.gender" />
       <ProfileDetailRow :label="t('birthday')" :value="profile.birthday" />
       <ProfileDetailRow :label="t('address')" :value="profile.address" last />
     </div>

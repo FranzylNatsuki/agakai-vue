@@ -1,47 +1,14 @@
-# AgakAI (Vue + Ionic + Capacitor)
+# AgakAI
 
-Frontend-only port of the Flutter app in `../lib`. Backend (Supabase) calls are blank placeholders.
+Vue 3 + Ionic + Capacitor. Gemini handles chat and memory; ElevenLabs handles speech-to-text and text-to-speech.
 
-## Run
+## Setup
 
-```bash
-npm install
-npm run dev            # browser preview (http://localhost:5173)
+- Put `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env`.
+- Store `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` as Supabase Edge Function secrets. Optional voice model settings are listed in `.env.example`.
+- Deploy the authenticated `gemini-ai` and `elevenlabs-voice` functions. Gemini uses Flash-Lite models and streams SSE through its Edge Function; voice playback streams PCM.
+- Run `npm run dev` for the app.
 
-npm run cap:add:android   # once
-npm run cap:android       # build + sync + open Android Studio
-npm run cap:add:ios       # once
-npm run cap:ios
-```
+Checks: `npm run typecheck`, `npm run test:voice`, `npm run build`.
 
-## Mock data
-
-`.env` has `VITE_USE_MOCK_DATA=true`, so services return sample data from `src/data/mock.ts`
-(any Senior ID / password logs in). Set it to `false` to see the real "blank" behaviour.
-
-## Structure
-
-```
-src/
-  theme/         design tokens (AppColors) + global css
-  locales/       en / bis / tl JSON (same as Flutter assets/lang)
-  composables/   useSettings (language + text size)
-  models/        Benefit, Profile
-  services/      ← backend TODOs live here (auth, profile, benefits, chat, recorder, tts, supabase)
-  components/
-    common/      header, bottom nav, modal, bottom sheet, toggles, markdown…
-    login/ home/ benefits/ voice/
-  views/         LoginView, AppShellView (tabs), HomeView, VoiceAssistantView, BenefitsView
-```
-
-## Backend TODO checklist
-
-- `services/authService.ts` – query `user` by `senior_id` + `password`
-- `services/profileService.ts` – load profile / `user_notes`
-- `services/benefitService.ts` – load from `benefit` table
-- `services/agakaiApi.ts` – SSE chat edge function (transcript/delta/audio/done/error)
-- `services/voiceRecorder.ts` / `ttsPlayer.ts` – mic capture + audio playback (Capacitor plugin or MediaRecorder)
-- `composables/useSettings.ts` – persist language / text size
-=======
-# agakai-vue
-Vue adaptation of AgakAI.
+Demo account (staging): `SC-2024-0001` / `123456`.

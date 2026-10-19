@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import QuestionButton from '@/components/voice/QuestionButton.vue';
 import AskBar from '@/components/voice/AskBar.vue';
+import { useSettings } from '@/composables/useSettings';
 
 const emit = defineEmits<{ (e: 'ask', question: string): void }>();
 
-const suggestions = [
+const { t } = useSettings();
+const suggestions = computed(() => [
   { title: 'Social Pension', subtitle: 'unsaon pag dawat o i check an...' },
   { title: 'Mag-pa Check up', subtitle: 'libreang pa check up sa cit...' },
   { title: 'Senior Discount', subtitle: 'unsaon pag-gamit sa Senior C...' },
-];
+  { title: t('faq_prompt_chat'), subtitle: t('faq_prompt_chat_subtitle') },
+]);
 
 const text = ref('');
 

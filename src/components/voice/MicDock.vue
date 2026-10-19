@@ -2,13 +2,13 @@
 import MicButton from '@/components/voice/MicButton.vue';
 
 /** Fixed bottom bar: mic button + status label (shared by all voice states). */
-defineProps<{ listening: boolean; label: string; soundLevel?: number }>();
+defineProps<{ listening: boolean; label: string }>();
 const emit = defineEmits<{ (e: 'micTap'): void }>();
 </script>
 
 <template>
   <div class="mic-dock">
-    <MicButton :listening="listening" :sound-level="soundLevel" @tap="emit('micTap')" />
+    <MicButton :listening="listening" @tap="emit('micTap')" />
     <!-- :key makes the label softly re-fade whenever the text changes -->
     <p :key="label" class="mic-dock__label fade-in">{{ label }}</p>
   </div>

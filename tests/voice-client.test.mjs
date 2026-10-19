@@ -1,0 +1,159 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { createServer } from 'vite';
+
+class FakeAudioContext {
+  static instances = [];
+  state = 'running';
+  destination = {};
+  started = Date.now();
+  played = [];
+  constructor() { FakeAudioContext.instances.push(this); }
+  get currentTime() { return (Date.now() - this.started) / 1000; }
+  async resume() {}
+  async close() { this.state = 'closed'; }
+  createBuffer(_channels, length, sampleRate) {
+    const data = new Float32Array(length);
+    return { duration: length / sampleRate, getChannelData: () => data };
+  }
+  createBufferSource() {
+    const context = this;
+    let timer;
+    return {
+      buffer: null, onended: null, connect() {}, disconnect() {},
+      start(time) {
+        context.played.push([...this.buffer.getChannelData(0)]);
+        timer = setTimeout(() => this.onended?.(), Math.max(1, (time - context.currentTime + this.buffer.duration) * 1000));
+      },
+      stop() { clearTimeout(timer); this.onended?.(); },
+    };
+  }
+}
+
+test('ElevenLabs-only client', async (t) => {
+  const vite = await createServer({
+    configFile: false, envDir: false, logLevel: 'silent',
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('https://agakai-test.supabase.co'),
+      'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify('sb_publishable_test'),
+    },
+    resolve: { alias: { '@': fileURLToPath(new URL('../src', import.meta.url)) } },
+    server: { middlewareMode: true, hmr: false, watch: null },
+  });
+  const originalFetch = globalThis.fetch;
+  const originalAudioContext = globalThis.AudioContext;
+  globalThis.AudioContext = FakeAudioContext;
+  try {
+    const { getSupabase } = await vite.ssrLoadModule('/src/services/supabase.ts');
+    globalThis.fetch = async (url) => {
+      assert.match(String(url), /\/auth\/v1\/user$/);
+      return Response.json({ id: 'test-user', aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '' });
+    };
+    const accessToken = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({ sub: 'test-user', aud: 'authenticated', exp: 4102444800, role: 'authenticated' })).toString('base64url')}.c2ln`;
+    await getSupabase().auth.setSession({
+      access_token: accessToken,
+      refresh_token: 'test-refresh-token',
+      user: { id: 'test-user', aud: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: '' },
+    });
+    const voice = await vite.ssrLoadModule('/src/services/elevenLabs.ts');
+    const { ttsPlayer } = await vite.ssrLoadModule('/src/services/ttsPlayer.ts');
+    await t.test('batch STT does not force a single language', async () => {
+      globalThis.fetch = async (url, options) => {
+        assert.equal(url, 'https://agakai-test.supabase.co/functions/v1/elevenlabs-voice/stt');
+        assert.equal(options.headers.Authorization.startsWith('Bearer '), true);
+        assert.equal(options.headers.apikey, 'sb_publishable_test');
+        assert.equal(options.body.get('language'), null);
+        assert.equal(options.body.get('file').type, 'audio/mp4');
+        assert.equal(options.body.get('file').name, 'recording.m4a');
+        return Response.json({ text: '' });
+      };
+      assert.equal(await voice.transcribeElevenLabs(new Uint8Array([1]), 'audio/mp4', 'm4a'), '');
+    });
+    await t.test('STT failure never invokes another provider', async () => {
+      let calls = 0;
+      globalThis.fetch = async () => { calls++; return new Response('', { status: 503 }); };
+      await assert.rejects(voice.transcribeElevenLabs(new Uint8Array([1]), 'audio/webm', 'webm'));
+      assert.equal(calls, 1);
+    });
+    await t.test('TTS starts before the stream ends and handles split PCM samples', async () => {
+      let streamController;
+      let started;
+      const firstPlayback = new Promise((resolve) => { started = resolve; });
+      globalThis.fetch = async (url, options) => {
+        assert.equal(url, 'https://agakai-test.supabase.co/functions/v1/elevenlabs-voice/tts');
+        assert.equal(options.headers.Authorization.startsWith('Bearer '), true);
+        assert.equal(options.headers.apikey, 'sb_publishable_test');
+        assert.deepEqual(JSON.parse(options.body), { text: 'Hello' });
+        return new Response(new ReadableStream({ start(controller) {
+          streamController = controller;
+          controller.enqueue(new Uint8Array([0, 128, 255]));
+        } }), { headers: { 'Content-Type': 'audio/pcm' } });
+      };
+      const playback = voice.playElevenLabsSpeech('Hello', new AbortController().signal, started);
+      await firstPlayback;
+      const context = FakeAudioContext.instances.at(-1);
+      assert.deepEqual(context.played, [[-1]]);
+      streamController.enqueue(new Uint8Array([127]));
+      streamController.close();
+      await playback;
+      assert.deepEqual(context.played, [[-1], [32767 / 32768]]);
+      assert.equal(context.state, 'closed');
+    });
+    await t.test('TTS failure propagates instead of switching to Gemini/browser speech', async () => {
+      let calls = 0;
+      globalThis.fetch = async () => { calls++; return new Response('', { status: 503 }); };
+      await assert.rejects(ttsPlayer.play(null, 'Hello'), /ElevenLabs/);
+      assert.equal(calls, 1);
+      assert.equal(FakeAudioContext.instances.at(-1).state, 'closed');
+    });
+    await t.test('replays generated speech from the conversation cache', async () => {
+      ttsPlayer.clearCache();
+      let calls = 0;
+      globalThis.fetch = async (url) => {
+        assert.equal(url, 'https://agakai-test.supabase.co/functions/v1/elevenlabs-voice/tts');
+        calls++;
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new Uint8Array([0, 0, 0, 0]));
+          controller.close();
+        } }), { headers: { 'Content-Type': 'audio/pcm' } });
+      };
+      await ttsPlayer.play(null, 'Cached answer');
+      await ttsPlayer.play(null, 'Cached answer');
+      assert.equal(calls, 1, 'replay should use cached PCM without another TTS request');
+      ttsPlayer.clearCache();
+      await ttsPlayer.play(null, 'Cached answer');
+      assert.equal(calls, 2, 'clearing the conversation cache should require new audio');
+      ttsPlayer.clearCache();
+    });
+    await t.test('Stop aborts the request, settles playback and resets speaking state', async () => {
+      let signal;
+      let started;
+      const firstPlayback = new Promise((resolve) => { started = resolve; });
+      const states = [];
+      const unsubscribe = ttsPlayer.onSpeakingChange((value) => {
+        states.push(value);
+        if (value) started();
+      });
+      globalThis.fetch = async (_url, options) => {
+        signal = options.signal;
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new Uint8Array([0, 0]));
+          signal.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')), { once: true });
+        } }), { headers: { 'Content-Type': 'audio/pcm' } });
+      };
+      const playback = ttsPlayer.play(null, 'Hello');
+      await firstPlayback;
+      await ttsPlayer.stop();
+      await playback;
+      unsubscribe();
+      assert.equal(signal.aborted, true);
+      assert.deepEqual(states, [false, true, false]);
+      assert.equal(FakeAudioContext.instances.at(-1).state, 'closed');
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.AudioContext = originalAudioContext;
+    await vite.close();
+  }
+});
