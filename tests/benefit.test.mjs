@@ -36,28 +36,31 @@ test('benefit display localization', async (t) => {
   }
 });
 
-test('AI card decision markers stay out of streamed text and speech', async () => {
+test('structured Gemini card decisions stream clean answer text', async () => {
   const vite = await createServer({
     configFile: false, envDir: false, logLevel: 'silent',
     resolve: { alias: { '@': fileURLToPath(new URL('../src', import.meta.url)) } },
     server: { middlewareMode: true, hmr: false, watch: null },
   });
   try {
-    const { createCardDecisionStream } = await vite.ssrLoadModule('/src/services/chatCards.ts');
-    const stream = createCardDecisionStream();
-    const visible = [
-      'A listed program may help. ',
-      '[[AGAK_',
-      'CARD:benefits]]',
-    ].map((chunk) => stream.push(chunk)).join('');
+    const { createChatResponseStream } = await vite.ssrLoadModule('/src/services/chatCards.ts');
+    const stream = createChatResponseStream();
+    const chunks = [
+      '{"answer":"Use the ',
+      'map.\\nTap \\"Show it\\".',
+      '","cardKind":"map"}',
+    ];
+    const visible = chunks.map((chunk) => stream.push(chunk)).join('');
     const result = stream.finish();
-    assert.equal(visible + result.text, 'A listed program may help. ');
-    assert.equal(result.cardKind, 'benefits');
-    assert.doesNotMatch(visible + result.text, /AGAK_CARD/);
+    assert.equal(visible, 'Use the map.\nTap "Show it".');
+    assert.equal(result.answer, visible);
+    assert.equal(result.cardKind, 'map');
+    assert.doesNotMatch(visible, /cardKind|AGAK_CARD/);
 
-    const noCard = createCardDecisionStream();
-    noCard.push('That sounds pleasant. [[AGAK_CARD:none]]');
-    assert.deepEqual(noCard.finish(), { text: '', cardKind: null });
+    const noCard = createChatResponseStream();
+    const noCardJson = '{"answer":"That sounds pleasant.","cardKind":"none"}';
+    noCard.push(noCardJson);
+    assert.deepEqual(noCard.finish(), { answer: 'That sounds pleasant.', cardKind: 'none' });
   } finally {
     await vite.close();
   }

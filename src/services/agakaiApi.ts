@@ -4,7 +4,7 @@ import { transcribeElevenLabs } from '@/services/elevenLabs';
 import { readSseData } from '@/services/sse';
 import { benefitService } from '@/services/benefitService';
 import { localizeBenefit, type Benefit } from '@/models/benefit';
-import { createCardDecisionStream, type ConversationTurn } from '@/services/chatCards';
+import { createChatResponseStream, type ConversationTurn } from '@/services/chatCards';
 import { profileService } from '@/services/profileService';
 import { memoryUpdateStatus } from '@/services/memoryUpdateStatus';
 import {
@@ -72,9 +72,9 @@ function buildSystemInstruction(
     'RESPONSE LANGUAGE: Reply in the same language as the senior’s latest message. If that message is clearly English, reply only in English—even if saved notes, profile details, benefit data, or earlier messages are in Tagalog or Cebuano. A language preference saved from earlier conversations must never override the clearly used language of the latest message. Follow a different language only when the senior explicitly requests it in their latest message. If they code-switch, mirror their mix naturally. Never infer response language from the app interface language, location, name, or support notes.',
     'Friend matching and introductions are not available. Do not invent, recommend, or claim to connect the senior with another person. If asked, say this feature is not available yet.',
     allowCards
-      ? 'CARD DECISION: You decide whether an interactive card would genuinely help, using the meaning of this ordinary conversation and recent turns—not a fixed FAQ list. Choose benefits for relevant listed senior benefits, pensions, discounts, medical or medicine assistance, and free services. Choose map only when a health-care location would help. Choose none for unrelated chat or when the available data cannot support the card. The map is a generic city health-center location, not a verified nearest provider. Do not imply eligibility or current availability unless the supplied data confirms it.'
-      : 'No interactive card is available in this view; answer normally without referring to cards.',
-    'OUTPUT PROTOCOL: End every response with exactly one routing marker on its own final line: [[AGAK_CARD:benefits]], [[AGAK_CARD:map]], or [[AGAK_CARD:none]]. Do not mention the marker in the answer. The app removes it before showing or speaking the response.',
+      ? 'CARD DECISION: Use the meaning of the latest message and recent conversation to decide whether one card would give a useful next step. Be selective and default to none; never attach the benefits catalogue to ordinary conversation or use it as a fallback. Choose map when the senior is trying to find, go to, or get directions to a health-care place. A follow-up like “Where is it?” can inherit a clearly established health-care place from recent turns. Do not choose map for general health information or symptoms without a location goal. Choose benefits only when the senior is asking about benefits, pensions, discounts, or assistance and the supplied benefit list supports a useful card. A question about free medical help is not automatically a request for a map: use the listed benefits if relevant, map only when they need a health-care place, otherwise none. Choose only the single card most useful to the immediate goal. The map is a general city health-center location, not a verified nearest provider or confirmation of opening hours.'
+      : 'No interactive card is available in this view; answer normally and set cardKind to none.',
+    'Return the answer and cardKind fields required by the response schema. Keep the card decision out of the answer text.',
     'Formatting & tone guidelines:',
     '- Keep answers concise (2 to 3 short sentences or a brief bulleted list) so it is quick to speak aloud and easy for an elderly person to follow.',
     '- Highlight key terms in **bold** and end with a short, warm, encouraging note.',
@@ -253,7 +253,19 @@ export const agakApi = {
           ...(req.history ?? []).map(({ role, text }) => ({ role, parts: [{ text }] })),
           { role: 'user', parts: [{ text: questionText }] },
         ],
-        generationConfig: { temperature: 0.5, maxOutputTokens: 1200 },
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 1200,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              answer: { type: 'STRING' },
+              cardKind: { type: 'STRING', enum: ['none', 'map', 'benefits'] },
+            },
+            required: ['answer', 'cardKind'],
+          },
+        },
       });
 
       if (!response.ok || !response.body) {
@@ -266,7 +278,7 @@ export const agakApi = {
 
       let fullAnswer = '';
       let finishReason: string | null = null;
-      const cardDecisionStream = createCardDecisionStream();
+      const chatResponseStream = createChatResponseStream();
 
       for await (const payload of readSseData(response.body)) {
         if (!payload || payload === '[DONE]') continue;
@@ -289,20 +301,13 @@ export const agakApi = {
         if (candidate?.finishReason) finishReason = candidate.finishReason;
         for (const part of candidate?.content?.parts ?? []) {
           if (!part.text) continue;
-          const visibleText = cardDecisionStream.push(part.text);
+          const visibleText = chatResponseStream.push(part.text);
           if (visibleText) {
             fullAnswer += visibleText;
             yield { type: 'delta', text: visibleText };
           }
         }
       }
-
-      const cardDecision = cardDecisionStream.finish();
-      if (cardDecision.text) {
-        fullAnswer += cardDecision.text;
-        yield { type: 'delta', text: cardDecision.text };
-      }
-      fullAnswer = fullAnswer.trim();
 
       if (finishReason === 'MAX_TOKENS') {
         yield {
@@ -319,7 +324,15 @@ export const agakApi = {
         return;
       }
 
-      if (!fullAnswer.trim()) {
+      const chatResponse = chatResponseStream.finish();
+      const remainingAnswer = chatResponse.answer.slice(fullAnswer.length);
+      if (remainingAnswer) {
+        fullAnswer += remainingAnswer;
+        yield { type: 'delta', text: remainingAnswer };
+      }
+      fullAnswer = chatResponse.answer.trim();
+
+      if (!fullAnswer) {
         yield {
           type: 'error',
           message: 'AgakAI could not generate an answer right now. Please try again.',
@@ -334,7 +347,7 @@ export const agakApi = {
       yield {
         type: 'done',
         answer: fullAnswer,
-        cardKind: req.allowCards ? cardDecision.cardKind : null,
+        cardKind: req.allowCards && chatResponse.cardKind !== 'none' ? chatResponse.cardKind : null,
       };
     } catch (err) {
       yield {

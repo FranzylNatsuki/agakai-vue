@@ -441,7 +441,7 @@ function appendSupplementalCard(kind: SupplementalCardKind) {
       id: nextId++,
       kind: 'card-treatment',
       placeName: mockHealthCenterLocation.name,
-      placeMeta: `${t('default_city')} · ${t('open_today')}`,
+      placeMeta: t('default_city'),
       placeLocation: mockHealthCenterLocation,
     });
   } else if (kind === 'benefits') {
@@ -1114,8 +1114,8 @@ async function handleLogout() {
           <!-- Rich Card: Treatment / Map -->
           <div v-else-if="item.kind === 'card-treatment'" class="card fade-up">
             <div class="head">
-              <svg class="i"><use href="#award" /></svg>
-              {{ t('from_lgu_benefits') }}
+              <svg class="i"><use href="#pin" /></svg>
+              {{ t('map_card_title') }}
             </div>
             <p class="map-card-hint">{{ t('map_card_hint') }}</p>
             <div class="body">
